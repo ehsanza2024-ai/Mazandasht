@@ -82,6 +82,7 @@ class Cap:
     bank_rows: int = 500        # rows in each Bank sheet (rows 17..516)
     banks: int = 10
     customers: int = 200
+    sellers: int = 100
     suppliers: int = 100
     accounts: int = 50
     staff: int = 50
@@ -93,9 +94,9 @@ class Cap:
     warehouses: int = 15
 
 
-QA_CAP = Cap(entry_rows=40, bank_rows=20, banks=10, customers=10, suppliers=8,
-             accounts=6, staff=6, party_types=8, txn_types=5, products_buy=8,
-             products_sell=8, baskets=5, warehouses=4)
+QA_CAP = Cap(entry_rows=40, bank_rows=20, banks=10, customers=10, sellers=8,
+             suppliers=8, accounts=6, staff=6, party_types=10, txn_types=5,
+             products_buy=8, products_sell=8, baskets=5, warehouses=4)
 
 # ---- fixed layout coordinates --------------------------------------------
 E_DATA0 = 9                       # first Entry data row
@@ -150,6 +151,17 @@ SEED_STAFF = [
     ("E004", "(نام انباردار)", "انباردار", "09110000013", ""),
 ]
 
+SEED_SELLERS = [
+    ("SL001", "حاج رضا محمدی (نمونه)", "حجره‌دار میدان بار",
+     "021-55550001", "09120000001", "تهران — میدان بار میوه و تره‌بار", "نمونه — ویرایش کنید"),
+    ("SL002", "شرکت گلسرای شمال (نمونه)", "مشتری صادراتی",
+     "011-55550002", "09120000002", "ساری — شهرک صنعتی", "نمونه"),
+    ("SL003", "عباس نیک‌پی (نمونه — واسطه)", "واسطه",
+     "011-55550003", "09120000003", "قائم‌شهر", "نمونه"),
+    ("SL004", "مشتری نقدی — پاساژ مرکزی (نمونه)", "مشتری نقدی",
+     "011-55550004", "09120000004", "قائم‌شهر — پاساژ مرکزی", "نمونه"),
+]
+
 SEED_PARTY_TYPES = [
     ("PT01", "مشتری عمده", "مشتری"),
     ("PT02", "مشتری صادراتی", "مشتری"),
@@ -158,7 +170,9 @@ SEED_PARTY_TYPES = [
     ("PT05", "حجره‌دار میدان بار", "تأمین‌کننده"),
     ("PT06", "عامل خرید", "تأمین‌کننده"),
     ("PT07", "حساب اداری/داخلی", "سایر"),
-    ("PT08", "سایر", "سایر"),
+    ("PT08", "واسطه", "مشتری"),
+    ("PT09", "مشتری نقدی", "مشتری"),
+    ("PT10", "سایر", "سایر"),
 ]
 
 SEED_TXN_TYPES = [
@@ -177,10 +191,10 @@ SEED_PRODUCTS_BUY = [
 ]
 
 SEED_PRODUCTS_SELL = [
-    ("PS01", "پرتقال درجه ۱ — بسته‌بندی", "پرتقال", "کیلوگرم", "خروج خط سورتینگ"),
-    ("PS02", "پرتقال درجه ۲ — عمومی", "پرتقال", "کیلوگرم", ""),
-    ("PS03", "نارنگی درجه ۱ — بسته‌بندی", "نارنگی", "کیلوگرم", ""),
-    ("PS04", "نارنگی عمومی", "نارنگی", "کیلوگرم", ""),
+    ("PS01", "پرتقال درجه ۱ — بسته‌بندی", "پرتقال", "کیلوگرم", "BK03", "خروج خط سورتینگ"),
+    ("PS02", "پرتقال درجه ۲ — عمومی", "پرتقال", "کیلوگرم", "BK02", ""),
+    ("PS03", "نارنگی درجه ۱ — بسته‌بندی", "نارنگی", "کیلوگرم", "BK03", ""),
+    ("PS04", "نارنگی عمومی", "نارنگی", "کیلوگرم", "BK01", ""),
 ]
 
 SEED_BASKETS = [
@@ -335,21 +349,34 @@ def rtl(ws, zoom=90):
     ws.sheet_view.zoomScale = zoom
 
 
-def brand_band(ws, ncols, mode="info"):
-    """Rows 1-2 brand band. mode='info' -> static text, 'txn' -> pulls from Sync."""
+def brand_band(ws, ncols, mode="info", comp_col="AJ", print_ncols=None):
+    """Rows 1-2 brand band. mode='info' -> static text, 'txn' -> pulls from Sync.
+    If print_ncols is given (sales Entry: print zone is narrower than the sheet),
+    the band is split so printed pages still show the text."""
     last = get_column_letter(ncols)
     if mode == "txn":
-        line1 = ('=IF(Sync!$AJ$6="","مازندشت",Sync!$AJ$6)&" — "&'
-                 'IF(Sync!$AJ$9="","سورتینگ و بسته‌بندی مرکبات",Sync!$AJ$9)')
-        line2 = ('=IF(Sync!$AJ$7="","%s",Sync!$AJ$7)&"     |     %s"'
+        line1 = (f'=IF(Sync!${comp_col}$6="","مازندشت",Sync!${comp_col}$6)&" — "&'
+                 f'IF(Sync!${comp_col}$9="","سورتینگ و بسته‌بندی مرکبات",Sync!${comp_col}$9)')
+        line2 = (f'=IF(Sync!${comp_col}$7="","%s",Sync!${comp_col}$7)&"     |     %s"'
                  % (BRAND_ADDR, BRAND_EN))
     else:
         line1 = f"{BRAND_NAME} — {BRAND_DESC}"
         line2 = BRAND_ADDR + ("     |     " + BRAND_EN if ncols >= 8 else "")
-    merge_put(ws, f"A1:{last}1", line1, fnt(15, True, C["white"]), fl(C["green_d"]),
-              al("center"), None)
-    merge_put(ws, f"A2:{last}2", line2, fnt(8, False, "C8E6C9"),
-              fl(C["green"]), al("center"), None)
+    if print_ncols and print_ncols < ncols:
+        p_last = get_column_letter(print_ncols)
+        r_last = get_column_letter(print_ncols + 1)
+        merge_put(ws, f"A1:{p_last}1", line1, fnt(15, True, C["white"]), fl(C["green_d"]),
+                  al("center"), None)
+        merge_put(ws, f"{r_last}1:{last}1", BRAND_EN + "  |  ناحیه فقط-اکسل",
+                  fnt(8, False, "A5D6A7"), fl(C["green_d"]), al("center"), None)
+        merge_put(ws, f"A2:{p_last}2", line2, fnt(8, False, "C8E6C9"),
+                  fl(C["green"]), al("center"), None)
+        merge_put(ws, f"{r_last}2:{last}2", None, fnt(8), fl(C["green"]), al("center"), None)
+    else:
+        merge_put(ws, f"A1:{last}1", line1, fnt(15, True, C["white"]), fl(C["green_d"]),
+                  al("center"), None)
+        merge_put(ws, f"A2:{last}2", line2, fnt(8, False, "C8E6C9"),
+                  fl(C["green"]), al("center"), None)
     ws.row_dimensions[1].height = 26
     ws.row_dimensions[2].height = 14
 
@@ -414,8 +441,8 @@ def data_area(ws, r0, r1, c0, c1, col_kinds, fmts=None, zebra=True):
 # 4. INFO WORKBOOK
 # ============================================================================
 
-INFO_SHEET_ORDER = ["Home", "Company", "Banks", "Customers", "Suppliers",
-                    "Accounts", "Staff", "PartyTypes", "TxnTypes",
+INFO_SHEET_ORDER = ["Home", "Company", "Banks", "Customers", "Sellers",
+                    "Suppliers", "Accounts", "Staff", "PartyTypes", "TxnTypes",
                     "Products_Buy", "Products_Sell", "Baskets", "Warehouses", "Lists"]
 
 # register specs: sheet -> (headers_fa_en, columns used for seed tuples, widths)
@@ -438,6 +465,15 @@ REG_SPECS = {
         title="دفتر مشتریان",
         hint="کدها از C001 شروع می‌شوند و از قبل درج شده‌اند؛ فقط نام و مشخصات را بنویسید. کد را تغییر ندهید — ردیف‌های ثبت‌شده با همین کد خوانده می‌شوند.",
         seed=SEED_CUSTOMERS, ncols=7, tab="green",
+    ),
+    "Sellers": dict(
+        headers=[("کد", "Code"), ("نام صاحب حساب", "Account Holder"), ("نوع مشتری", "Customer Type"),
+                 ("تلفن", "Phone"), ("همراه", "Mobile"), ("نشانی", "Address"),
+                 ("توضیحات", "Notes")],
+        widths=[10, 30, 20, 15, 15, 32, 26],
+        title="دفتر فروشندگان (خریداران-بازفروش‌ها) — منبع کد حساب در فایل فروش",
+        hint="کدها از SL001 شروع می‌شوند و از قبل درج شده‌اند. «نوع مشتری» را از کشویی انتخاب کنید — انواع آن در شیت PartyTypes تعریف می‌شود (حجره‌دار، صادراتی، واسطه، نقدی و…) و هر زمان قابل گسترش است.",
+        seed=SEED_SELLERS, ncols=7, tab="green",
     ),
     "Suppliers": dict(
         headers=[("کد", "Code"), ("نوع طرف حساب", "Party Type"), ("نام / باغ‌دار / حجره", "Name"),
@@ -488,20 +524,20 @@ REG_SPECS = {
         seed=SEED_PRODUCTS_BUY, ncols=5, tab="olive",
     ),
     "Products_Sell": dict(
-        headers=[("کد", "Code"), ("نام محصول", "Product"), ("دسته", "Category"),
-                 ("واحد", "Unit"), ("توضیحات", "Notes")],
-        widths=[9, 24, 14, 12, 34],
+        headers=[("کد", "Code"), ("نام محصول", "Product"), ("دسته (نوع مرکبات)", "Category"),
+                 ("واحد", "Unit"), ("نوع سبد", "Basket"), ("توضیحات", "Notes")],
+        widths=[9, 24, 15, 11, 22, 30],
         title="محصولات فروش (خروجی سورتینگ و بسته‌بندی)",
-        hint="کدها از PS01 شروع می‌شوند.",
-        seed=SEED_PRODUCTS_SELL, ncols=5, tab="olive",
+        hint="کدها از PS01 شروع می‌شوند. «نوع سبد» را از کشویی انتخاب کنید (از شیت Baskets) — در فایل فروش، با انتخاب هر محصول، نوع سبد و نوع مرکبات آن خودکار نوشته می‌شود.",
+        seed=SEED_PRODUCTS_SELL, ncols=6, tab="olive",
     ),
     "Baskets": dict(
         headers=[("کد", "Code"), ("نام", "Name"), ("ظرفیت (کیلوگرم)", "Capacity"),
-                 ("توضیحات", "Notes")],
-        widths=[9, 22, 15, 36],
+                 ("توضیحات", "Notes"), ("برچسب کشویی (خودکار)", "Label (auto)")],
+        widths=[9, 22, 15, 28, 30],
         title="انواع سبدها و ظروف",
-        hint="کدها از BK01 شروع می‌شوند.",
-        seed=SEED_BASKETS, ncols=4, tab="olive",
+        hint="کدها از BK01 شروع می‌شوند. ستون آخر خودکار است و در کشوی «نوع سبد» محصولات استفاده می‌شود.",
+        seed=SEED_BASKETS, ncols=5, tab="olive",
     ),
     "Warehouses": dict(
         headers=[("کد", "Code"), ("نام انبار", "Warehouse"), ("موقعیت", "Location"),
@@ -513,17 +549,17 @@ REG_SPECS = {
     ),
 }
 
-CAP_OF = dict(Banks="banks", Customers="customers", Suppliers="suppliers",
+CAP_OF = dict(Banks="banks", Customers="customers", Sellers="sellers", Suppliers="suppliers",
               Accounts="accounts", Staff="staff", PartyTypes="party_types",
               TxnTypes="txn_types", Products_Buy="products_buy",
               Products_Sell="products_sell", Baskets="baskets",
               Warehouses="warehouses")
 
-PREFIX_OF = dict(Banks="BANK", Customers="C", Suppliers="S", Accounts="X",
+PREFIX_OF = dict(Banks="BANK", Customers="C", Sellers="SL", Suppliers="S", Accounts="X",
                  Staff="E", PartyTypes="PT", TxnTypes="T", Products_Buy="PB",
                  Products_Sell="PS", Baskets="BK", Warehouses="W")
 
-PAD_OF = dict(Banks=2, Customers=3, Suppliers=3, Accounts=3, Staff=3,
+PAD_OF = dict(Banks=2, Customers=3, Sellers=3, Suppliers=3, Accounts=3, Staff=3,
               PartyTypes=2, TxnTypes=2, Products_Buy=2, Products_Sell=2,
               Baskets=2, Warehouses=2)
 
@@ -559,6 +595,15 @@ def build_register_sheet(wb, name, cap, dv_sources=None):
     for i, code in enumerate(codes):
         r = S_DATA0 + i
         ws.cell(row=r, column=1, value=code).font = fnt(9, True, C["green_d"])
+    # Baskets: auto label column (last col) used by dropdowns elsewhere
+    if name == "Baskets":
+        lc = get_column_letter(spec["ncols"])
+        for i in range(n):
+            r = S_DATA0 + i
+            ws[f"{lc}{r}"] = (f'=IF($A{r}="","",$A{r}&" – "&IF($B{r}="","(بدون عنوان)",$B{r}))')
+            ws[f"{lc}{r}"].font = fnt(8.5, False, C["gray"])
+            ws[f"{lc}{r}"].alignment = al("center")
+            ws[f"{lc}{r}"].fill = fl(C["auto"])
     for i, row in enumerate(spec["seed"]):
         if i >= n:
             break
@@ -637,14 +682,15 @@ def build_info(cap, out_path):
     dv_map = {
         "Banks": {"D": "ListYesNo"},
         "Customers": {"B": "ListPT"},
+        "Sellers": {"C": "ListPT"},
         "Suppliers": {"B": "ListPT"},
         "Accounts": {"B": "ListPT"},
         "Staff": {"C": "ListRoles"},
         "Products_Buy": {"C": "ListCategories", "D": "ListUnits"},
-        "Products_Sell": {"C": "ListCategories", "D": "ListUnits"},
+        "Products_Sell": {"C": "ListCategories", "D": "ListUnits", "E": "ListBaskets"},
         "Warehouses": {"D": "ListRoles"},
     }
-    for name in ["Banks", "Customers", "Suppliers", "Accounts", "Staff",
+    for name in ["Banks", "Customers", "Sellers", "Suppliers", "Accounts", "Staff",
                  "PartyTypes", "TxnTypes", "Products_Buy", "Products_Sell",
                  "Baskets", "Warehouses"]:
         build_register_sheet(wb, name, cap, dv_map.get(name))
@@ -656,6 +702,8 @@ def build_info(cap, out_path):
         "ListCategories": f"Lists!$C${S_DATA0}:$C${S_DATA0 + 25}",
         "ListYesNo": f"Lists!$D${S_DATA0}:$D${S_DATA0 + 1}",
         "ListPT": f"PartyTypes!$B${S_DATA0}:$B${S_DATA0 + cap.party_types - 1}",
+        "ListBaskets": (f"OFFSET(Baskets!$E${S_DATA0},0,0,"
+                        f"MAX(COUNTIF(Baskets!$E${S_DATA0}:$E${S_DATA0 + cap.baskets - 1},\"?*\"),1),1)"),
     }
     for n, ref in info_names.items():
         wb.defined_names[n] = DefinedName(n, attr_text=ref)
@@ -673,11 +721,13 @@ def build_info(cap, out_path):
     stats = [
         ("بانک‌ها", f"=COUNTA(Banks!$B${S_DATA0}:$B${S_DATA0 + cap.banks - 1})"),
         ("مشتریان", f"=COUNTA(Customers!$C${S_DATA0}:$C${S_DATA0 + cap.customers - 1})"),
+        ("فروشندگان", f"=COUNTA(Sellers!$B${S_DATA0}:$B${S_DATA0 + cap.sellers - 1})"),
         ("تأمین‌کنندگان", f"=COUNTA(Suppliers!$C${S_DATA0}:$C${S_DATA0 + cap.suppliers - 1})"),
         ("سایر حساب‌ها", f"=COUNTA(Accounts!$C${S_DATA0}:$C${S_DATA0 + cap.accounts - 1})"),
         ("کارکنان", f"=COUNTA(Staff!$B${S_DATA0}:$B${S_DATA0 + cap.staff - 1})"),
         ("محصولات خرید", f"=COUNTA(Products_Buy!$B${S_DATA0}:$B${S_DATA0 + cap.products_buy - 1})"),
         ("محصولات فروش", f"=COUNTA(Products_Sell!$B${S_DATA0}:$B${S_DATA0 + cap.products_sell - 1})"),
+        ("سبدها", f"=COUNTA(Baskets!$B${S_DATA0}:$B${S_DATA0 + cap.baskets - 1})"),
         ("انبارها", f"=COUNTA(Warehouses!$B${S_DATA0}:$B${S_DATA0 + cap.warehouses - 1})"),
     ]
     r0 = 5
@@ -698,6 +748,7 @@ def build_info(cap, out_path):
         ("Company", "مشخصات شرکت — منبع سرصفحه همه فایل‌ها"),
         ("Banks", "بانک‌ها — کد، عنوان روزمره، مانده اولیه، فعال بودن"),
         ("Customers", "مشتریان — کد C…"),
+        ("Sellers", "فروشندگان (خریداران-بازفروش‌ها) — کد SL… و نوع مشتری (کشویی)"),
         ("Suppliers", "تأمین‌کنندگان (حجره‌داران، باغ‌داران، عوامل) — کد S…"),
         ("Accounts", "سایر حساب‌ها (کارمزد، مالیات، صندوق و…) — کد X…"),
         ("Staff", "کارکنان و فروشندگان — کد E…"),
@@ -724,12 +775,13 @@ def build_info(cap, out_path):
     rules = [
         ("بانک‌ها", "BANK01 … BANK10", "کد ثابت — عنوان آزاد"),
         ("مشتریان", "C001, C002, …", "کد ثابت پس از تعریف"),
+        ("فروشندگان", "SL001, SL002, …", "منبع کد حساب فایل فروش"),
         ("تأمین‌کنندگان", "S001, S002, …", ""),
         ("سایر حساب‌ها", "X001, X002, …", ""),
         ("کارکنان/فروشندگان", "E001, E002, …", ""),
-        ("انواع طرف حساب", "PT01 …", ""),
+        ("انواع طرف حساب", "PT01 …", "حجره‌دار، صادراتی، واسطه، نقدی و… — قابل گسترش"),
         ("انواع تراکنش", "T01 …", ""),
-        ("محصولات خرید / فروش", "PB01… / PS01…", ""),
+        ("محصولات خرید / فروش", "PB01… / PS01…", "محصول فروش: نوع سبد + نوع مرکبات دارد"),
         ("سبدها / انبارها", "BK01… / W01…", ""),
     ]
     hdr_r = r + 1
@@ -885,7 +937,7 @@ def build_sync(wb, cap, external):
     mirror("AH", "Warehouses", "B", cap.warehouses)
     # --- Company (AJ) ---
     block_header("AJ", "Company")
-    comp_cells = [("$D$5", "name"), ("$D$8", "address"), ("$D$9", "phone"), ("$D$7", "activity")]
+    comp_cells = [("$C$5", "name"), ("$C$8", "address"), ("$C$9", "phone"), ("$C$7", "activity")]
     for i, (ref, _nm) in enumerate(comp_cells):
         ext = sync_ref("Company", ref, external)
         ws[f"AJ{n0 + i}"] = f'=IF({ext}="","",{ext})'
@@ -1582,9 +1634,7 @@ def build_transactions(cap, out_path, external=True, info_path=None):
 
     # internal QA mode: embed INFO registers so links are local
     if not external:
-        for name in ["Company", "Banks", "Customers", "Suppliers", "Accounts",
-                     "Staff", "PartyTypes", "TxnTypes", "Products_Buy",
-                     "Products_Sell", "Baskets", "Warehouses", "Lists"]:
+        for name in INFO_SHEET_ORDER[1:]:
             wb.create_sheet(name).sheet_properties.tabColor = C["tab_gray"]
         build_info_sheets_into(wb, cap)
 
@@ -1653,11 +1703,8 @@ def build_transactions(cap, out_path, external=True, info_path=None):
 
 
 def build_info_sheets_into(wb, cap):
-    """Populate pre-created INFO sheets inside the Transactions workbook (QA internal mode)."""
-    # remove empties and rebuild via build_register_sheet/Company/Lists
-    for name in ["Company", "Banks", "Customers", "Suppliers", "Accounts", "Staff",
-                 "PartyTypes", "TxnTypes", "Products_Buy", "Products_Sell",
-                 "Baskets", "Warehouses", "Lists"]:
+    """Populate pre-created INFO sheets inside the workbook (QA internal mode)."""
+    for name in INFO_SHEET_ORDER[1:]:
         del wb[name]
     # Lists
     ws = wb.create_sheet("Lists")
@@ -1680,13 +1727,14 @@ def build_info_sheets_into(wb, cap):
     # registers
     dv_map = {
         "Banks": {"D": "ListYesNo"}, "Customers": {"B": "ListPT"},
+        "Sellers": {"C": "ListPT"},
         "Suppliers": {"B": "ListPT"}, "Accounts": {"B": "ListPT"},
         "Staff": {"C": "ListRoles"},
         "Products_Buy": {"C": "ListCategories", "D": "ListUnits"},
-        "Products_Sell": {"C": "ListCategories", "D": "ListUnits"},
+        "Products_Sell": {"C": "ListCategories", "D": "ListUnits", "E": "ListBaskets"},
         "Warehouses": {"D": "ListRoles"},
     }
-    for name in ["Banks", "Customers", "Suppliers", "Accounts", "Staff",
+    for name in ["Banks", "Customers", "Sellers", "Suppliers", "Accounts", "Staff",
                  "PartyTypes", "TxnTypes", "Products_Buy", "Products_Sell",
                  "Baskets", "Warehouses"]:
         build_register_sheet(wb, name, cap, None)
@@ -1696,39 +1744,597 @@ def build_info_sheets_into(wb, cap):
         "ListCategories": f"Lists!$C${S_DATA0}:$C${S_DATA0 + 25}",
         "ListYesNo": f"Lists!$D${S_DATA0}:$D${S_DATA0 + 1}",
         "ListPT": f"PartyTypes!$B${S_DATA0}:$B${S_DATA0 + cap.party_types - 1}",
+        "ListBaskets": (f"OFFSET(Baskets!$E${S_DATA0},0,0,"
+                        f"MAX(COUNTIF(Baskets!$E${S_DATA0}:$E${S_DATA0 + cap.baskets - 1},\"?*\"),1),1)"),
     }
+    for n, ref in info_names.items():
+        wb.defined_names[n] = DefinedName(n, attr_text=ref)
     # names will be re-added by build_transactions; register here temporarily
+
+
+# ============================================================================
+# 5b. SALES WORKBOOK (Mazandasht_Sales.xlsx)
+# ============================================================================
+
+SALES_FILE = "Mazandasht_Sales.xlsx"
+SALES_SLOTS = 15                     # product slots per invoice row
+SALES_DATA0 = 10                     # first Entry data row
+SLOT_W = 5                           # cols per slot: product|basket|citrus|count|weight
+
+
+def s_data1(cap):
+    return SALES_DATA0 + cap.entry_rows - 1
+
+
+def slot_col(i, off):
+    """column index of slot i (1..15), offset 0..4"""
+    return 12 + SLOT_W * (i - 1) + 1 + off
+
+
+def parse_code_expr(ref):
+    """classic formula: extract code from 'SL001 – name' or bare 'SL001'"""
+    return (f'IF(ISNUMBER(FIND(" – ",{ref})),LEFT({ref},FIND(" – ",{ref})-1),{ref})')
+
+
+def build_sales_sync(wb, cap, external):
+    n0 = SY_DATA0
+    ws = wb.create_sheet("Sync")
+    ws.sheet_properties.tabColor = C["tab_gray"]
+    ws.sheet_view.rightToLeft = False
+    ws.sheet_view.showGridLines = False
+    brand_band(ws, 22, mode="info")
+    merge_put(ws, "A3:V3",
+              "برگه فنی — آینه‌ی فایل مادر (INFO) برای فایل فروش. فرمول‌ها را تغییر ندهید. "
+              "اگر همه سلول‌ها خالی شدند یعنی لینک به‌روز نشده: Data ← Edit Links ← Update Values.",
+              fnt(8, True, C["red"]), fl(C["amber_l"]), al("left", wrap=True))
+
+    def mirror(col, sheet, info_col, rows, num=False):
+        for i in range(rows):
+            r = n0 + i
+            ir = S_DATA0 + i
+            ref = sync_ref(sheet, f"${info_col}${ir}", external)
+            if num:
+                ws[f"{col}{r}"] = f"={ref}"
+            else:
+                ws[f"{col}{r}"] = f'=IF({ref}="","",{ref})'
+
+    def block_header(col, title):
+        put(ws, f"{col}5", title, fnt(8, True, C["white"]), fl(C["green"]),
+            al("center", wrap=True), BORDER_ALL)
+
+    # Sellers (A:C) — code, name, type
+    for cl, t in zip("ABC", ["Sellers · Code", "Sellers · Name", "Sellers · Type"]):
+        block_header(cl, t)
+    mirror("A", "Sellers", "A", cap.sellers)
+    mirror("B", "Sellers", "B", cap.sellers)
+    mirror("C", "Sellers", "C", cap.sellers)
+    # Products_Sell (E:I) — code, name, category, unit, basket
+    for cl, t in zip("EFGHI", ["Products_Sell · Code", "· Name", "· Category",
+                               "· Unit", "· Basket"]):
+        block_header(cl, t)
+    mirror("E", "Products_Sell", "A", cap.products_sell)
+    mirror("F", "Products_Sell", "B", cap.products_sell)
+    mirror("G", "Products_Sell", "C", cap.products_sell)
+    mirror("H", "Products_Sell", "D", cap.products_sell)
+    mirror("I", "Products_Sell", "E", cap.products_sell)
+    # Baskets (K:L) — code, name
+    block_header("K", "Baskets · Code"); block_header("L", "Baskets · Name")
+    mirror("K", "Baskets", "A", cap.baskets)
+    mirror("L", "Baskets", "B", cap.baskets)
+    # Company (N)
+    block_header("N", "Company")
+    comp_cells = [("$C$5", "name"), ("$C$8", "address"), ("$C$9", "phone"), ("$C$7", "activity")]
+    for i, (ref, _nm) in enumerate(comp_cells):
+        ext = sync_ref("Company", ref, external)
+        ws[f"N{n0 + i}"] = f'=IF({ext}="","",{ext})'
+
+    # packed seller list: cum P, code Q, label R
+    block_header("P", "cum·S"); block_header("Q", "LIST · Seller codes"); block_header("R", "LIST · Sellers")
+    for i in range(cap.sellers):
+        r = n0 + i
+        ws[f"P{r}"] = f'=COUNTIF($A${n0}:$A{r},"?*")'
+        m = f'MATCH(ROW()-{n0 - 1},$P${n0}:$P${n0 + cap.sellers - 1},0)'
+        ws[f"Q{r}"] = f'=IFERROR(INDEX($A${n0}:$A${n0 + cap.sellers - 1},{m}),"")'
+        ws[f"R{r}"] = (
+            f'=IF($Q{r}="","",$Q{r}&" – "&IF(IFERROR(VLOOKUP($Q{r},$A${n0}:$B${n0 + cap.sellers - 1},2,0),"")="",'
+            f'"(بدون عنوان)",VLOOKUP($Q{r},$A${n0}:$B${n0 + cap.sellers - 1},2,0)))'
+        )
+    # packed product list: cum T, code U, label V
+    block_header("T", "cum·P"); block_header("U", "LIST · Product codes"); block_header("V", "LIST · Products")
+    for i in range(cap.products_sell):
+        r = n0 + i
+        ws[f"T{r}"] = f'=COUNTIF($E${n0}:$E{r},"?*")'
+        m = f'MATCH(ROW()-{n0 - 1},$T${n0}:$T${n0 + cap.products_sell - 1},0)'
+        ws[f"U{r}"] = f'=IFERROR(INDEX($E${n0}:$E${n0 + cap.products_sell - 1},{m}),"")'
+        ws[f"V{r}"] = (
+            f'=IF($U{r}="","",$U{r}&" – "&IF(IFERROR(VLOOKUP($U{r},$E${n0}:$F${n0 + cap.products_sell - 1},2,0),"")="",'
+            f'"(بدون عنوان)",VLOOKUP($U{r},$E${n0}:$F${n0 + cap.products_sell - 1},2,0)))'
+        )
+
+    set_widths(ws, {"A": 9, "B": 28, "C": 20, "E": 9, "F": 26, "G": 14, "H": 10,
+                    "I": 12, "K": 9, "L": 20, "N": 30, "P": 7, "Q": 22, "R": 36,
+                    "T": 7, "U": 22, "V": 36})
+    ws.freeze_panes = "A6"
+    return ws
+
+
+def build_sales_calc(wb, cap):
+    n0, n1 = SALES_DATA0, s_data1(cap)
+    ws = wb.create_sheet("Calc")
+    ws.sheet_properties.tabColor = C["tab_gray"]
+    ws.sheet_view.rightToLeft = False
+    ws.sheet_view.showGridLines = False
+    brand_band(ws, 13, mode="info")
+    merge_put(ws, "A3:M3",
+              "برگه فنی — موتور محاسبات فایل فروش (نرمال‌سازی تاریخ، کد فروشنده و آمار ردیف). فرمول‌ها را تغییر ندهید.",
+              fnt(8, True, C["red"]), fl(C["amber_l"]), al("left"))
+    hdrs = ["تاریخ خام · Raw", "سال · Y", "ماه · M", "روز · D", "تاریخ استاندارد · Norm",
+            "سال/ماه · YM", "کد فروشنده · Seller", "شماره فاکتور · Invoice",
+            "وزن ارسالی · Sent", "وزن فروش · Sold", "مبلغ صافی · Amount",
+            "جمع وزن محصولات · ProdWt", "تعداد اقلام · Items"]
+    for i, h in enumerate(hdrs):
+        col = get_column_letter(i + 1)
+        put(ws, f"{col}8", h, fnt(7.5, True, C["white"]), fl(C["gray"]),
+            al("center", wrap=True), BORDER_ALL)
+    ws.row_dimensions[8].height = 24
+
+    for r in range(n0, n1 + 1):
+        ws[f"A{r}"] = f'=IF(Entry!$B{r}="","",Entry!$B{r})'
+        ws[f"B{r}"] = (
+            f'=IF($A{r}="","",IF(ISNUMBER($A{r}),'
+            f'IF(AND($A{r}>=10000101,$A{r}<=99991231),INT($A{r}/10000),""),'
+            f'IFERROR(VALUE(TRIM(LEFT($A{r},FIND("/",$A{r})-1))),"")))'
+        )
+        ws[f"C{r}"] = (
+            f'=IF(OR($A{r}="",$B{r}=""),"",IF(ISNUMBER($A{r}),'
+            f'INT(MOD($A{r},10000)/100),'
+            f'IFERROR(VALUE(TRIM(LEFT(MID($A{r},FIND("/",$A{r})+1,20),'
+            f'FIND("/",MID($A{r},FIND("/",$A{r})+1,20))-1))),"")))'
+        )
+        ws[f"D{r}"] = (
+            f'=IF(OR($A{r}="",$B{r}=""),"",IF(ISNUMBER($A{r}),'
+            f'MOD($A{r},100),'
+            f'IFERROR(VALUE(TRIM(MID(MID($A{r},FIND("/",$A{r})+1,20),'
+            f'FIND("/",MID($A{r},FIND("/",$A{r})+1,20))+1,20))),"")))'
+        )
+        ws[f"E{r}"] = (
+            f'=IF($A{r}="","",IF(OR($B{r}="",$C{r}="",$D{r}="",$B{r}<1300,$B{r}>1500,'
+            f'$C{r}<1,$C{r}>12,$D{r}<1,$D{r}>31),"نامعتبر",'
+            f'RIGHT("0000"&$B{r},4)&"/"&RIGHT("00"&$C{r},2)&"/"&RIGHT("00"&$D{r},2)))'
+        )
+        ws[f"F{r}"] = f'=IF(OR($E{r}="",$E{r}="نامعتبر"),"",LEFT($E{r},4)&"/"&MID($E{r},6,2))'
+        ws[f"G{r}"] = (
+            f'=IF(OR($E{r}="",$E{r}="نامعتبر",Entry!$D{r}=""),"",'
+            f'{parse_code_expr("Entry!$D" + str(r))})'
+        )
+        ws[f"H{r}"] = f'=IF(Entry!$C{r}="","",Entry!$C{r})'
+        ws[f"I{r}"] = f'=IF(Entry!$F{r}="",0,Entry!$F{r})'
+        ws[f"J{r}"] = f'=IF(Entry!$G{r}="",0,Entry!$G{r})'
+        ws[f"K{r}"] = f'=IF(Entry!$H{r}="",0,Entry!$H{r})'
+        ws[f"L{r}"] = f'=IF(Entry!$K{r}="",0,Entry!$K{r})'
+        cnt_args = ",".join(f'Entry!${get_column_letter(slot_col(i, 0))}{r}'
+                            for i in range(1, SALES_SLOTS + 1))
+        ws[f"M{r}"] = f'=IF($G{r}="","",COUNTA({cnt_args}))'
+
+    set_widths(ws, {"A": 12, "B": 6, "C": 6, "D": 6, "E": 12, "F": 9, "G": 10,
+                    "H": 11, "I": 13, "J": 13, "K": 15, "L": 14, "M": 9})
+    ws.freeze_panes = "A9"
+    return ws
+
+
+# seed rows: (date, invoice, seller, sent, sold, amount, [(product, count, weight), ...])
+SEED_SALES = [
+    ("1405/07/05", 1001, "SL001 – حاج رضا محمدی (نمونه — حجره‌دار تهران)", 12000, 11950,
+     950000000, [("PS01 – پرتقال درجه ۱ — بسته‌بندی", 600, 6000),
+                 ("PS02 – پرتقال درجه ۲ — عمومی", 595, 5950)]),
+    ("1405/07/06", 1002, "SL002 – شرکت گلسرای شمال (نمونه — صادراتی)", 20000, 19500,
+     1600000000, [("PS03 – نارنگی درجه ۱ — بسته‌بندی", 1000, 10000),
+                  ("PS04 – نارنگی عمومی", 950, 9500)]),
+    ("1405/07/08", 1003, "SL003 – عباس نیک‌پی (نمونه — واسطه)", 8000, 8000,
+     640000000, [("PS02 – پرتقال درجه ۲ — عمومی", 800, 8000)]),
+    ("1405/07/10", 1004, "SL004", 5000, 4990,
+     400000000, [("PS01", 499, 4990)]),
+]
+
+
+def build_sales_entry(wb, cap):
+    n0, n1 = SALES_DATA0, s_data1(cap)
+    ws = wb.create_sheet("Entry")
+    ws.sheet_properties.tabColor = C["tab_orange"]
+    rtl(ws, 80)
+    ncols = 12 + SALES_SLOTS * SLOT_W
+    last = get_column_letter(ncols)
+    print_last = "H"
+    brand_band(ws, ncols, mode="txn", comp_col="N", print_ncols=8)
+    merge_put(ws, f"A3:H3", "فروش محصولات به فروشندگان — ورود داده (Entry)",
+              fnt(13, True, C["orange_d"]), fl(C["green_xl"]), al("center"),
+              bd(b=sd("medium", C["orange"])))
+    merge_put(ws, f"I3:{last}3", "۱۵ ردیف محصول — ناحیه فقط-اکسل (خارج از چاپ)",
+              fnt(9, True, C["green"]), fl(C["green_xl"]), al("center"),
+              bd(b=sd("medium", C["green"])))
+    ws.row_dimensions[3].height = 24
+    merge_put(ws, f"A4:H4",
+              "ستون‌های زرد = ورود دستی شما | ستون‌های خاکستری = خودکار.  تاریخ: 1405/07/10 (یا 14050710) — "
+              "کد فروشنده را تایپ کنید (مثل SL001) یا از کشویی انتخاب کنید؛ نامش خودکار می‌آید.",
+              fnt(8, False, C["gray"], italic=True), fl(C["white"]), al("right", wrap=True))
+    merge_put(ws, f"I4:{last}4",
+              "برای هر فاکتور تا ۱۵ نوع محصول: محصول را از کشویی انتخاب کنید تا نوع سبد و نوع مرکبات خودکار نوشته شود، "
+              "سپس تعداد سبد و وزن را وارد کنید. این ستون‌ها با دکمه +/─ بالای ستون‌ها جمع می‌شوند.",
+              fnt(8, False, C["gray"], italic=True), fl(C["white"]), al("right", wrap=True))
+    ws.row_dimensions[4].height = 24
+
+    # KPI cards (rows 5-6): 4 printed + 2 excel-only
+    kpis = [
+        (1, 2, "تعداد فاکتور", f"=COUNTA($B${n0}:$B${n1})", "0"),
+        (3, 4, "جمع وزن ارسالی (kg)", f"=SUM($F${n0}:$F${n1})", "#,##0.0"),
+        (5, 6, "جمع وزن فروش (kg)", f"=SUM($G${n0}:$G${n1})", "#,##0.0"),
+        (7, 8, "جمع مبلغ صافی (ریال)", f"=SUM($H${n0}:$H${n1})", "#,##0"),
+        (9, 10, f"تعداد {BAD_MARK} اختلاف وزن", f'=COUNTIF($J${n0}:$J${n1},"{BAD_MARK}")', "0"),
+        (11, 12, "ظرفیت باقی‌مانده", f"={cap.entry_rows}-COUNTA($B${n0}:$B${n1})", "0"),
+    ]
+    for c0, c1, lbl, formula, fmt in kpis:
+        card(ws, 5, 6, c0, c1, lbl, formula, fmt)
+    ws.row_dimensions[5].height = 13
+    ws.row_dimensions[6].height = 20
+
+    # band row 7
+    merge_put(ws, "A7:H7", "مشخصات فاکتور — محدوده چاپ",
+              fnt(9, True, C["green_d"]), fl(C["green_l"]), al("center"),
+              bd(b=sd("medium", C["green"]), t=sd("medium", C["green"])))
+    merge_put(ws, "I7:L7", "کنترل وزن — فقط اکسل (چاپ نمی‌شود)",
+              fnt(9, True, C["amber"]), fl(C["amber_l"]), al("center"),
+              bd(b=sd("medium", C["amber"]), t=sd("medium", C["amber"])))
+    for i in range(1, SALES_SLOTS + 1):
+        c0 = slot_col(i, 0)
+        c1 = c0 + SLOT_W - 1
+        fill = fl(C["white"] if i % 2 else C["zebra"])
+        merge_put(ws, f"{get_column_letter(c0)}7:{get_column_letter(c1)}7",
+                  f"ردیف محصول {i}", fnt(8, True, C["olive"] if "olive" in C else C["green_d"]),
+                  fill, al("center"), BORDER_ALL)
+    ws.row_dimensions[7].height = 16
+
+    # headers rows 8-9
+    headers = [
+        ("ردیف", "No."), ("تاریخ", "Date"), ("شماره فاکتور", "Invoice No."),
+        ("کد فروشنده", "Seller Code"), ("نام فروشنده", "Seller"),
+        ("وزن ارسالی (kg)", "Sent Wt"), ("وزن فروش (kg)", "Sold Wt"),
+        ("مبلغ صافی (ریال)", "Net Amount"),
+        ("اختلاف وزن", "Wt Diff"), ("وضعیت ۱٪", "1% Status"),
+        ("جمع وزن محصولات", "Products Wt"), ("اختلاف با ارسالی", "Sent−Prod"),
+    ]
+    for i in range(1, SALES_SLOTS + 1):
+        headers += [
+            (f"محصول {i}", f"Product {i}"), ("نوع سبد", "Basket"),
+            ("نوع مرکبات", "Citrus"), ("تعداد سبد", "Count"), ("وزن (kg)", "Weight"),
+        ]
+    table_headers(ws, 8, 9, headers)
+
+    # data area styling
+    input_cols = {2, 3, 4, 6, 7, 8}
+    auto_cols = {1, 5, 9, 10, 11, 12}
+    fmts = {6: "#,##0.0", 7: "#,##0.0", 8: "#,##0", 9: "#,##0.0", 11: "#,##0.0", 12: "#,##0.0"}
+    for i in range(1, SALES_SLOTS + 1):
+        input_cols |= {slot_col(i, 0), slot_col(i, 3), slot_col(i, 4)}
+        auto_cols |= {slot_col(i, 1), slot_col(i, 2)}
+        fmts[slot_col(i, 3)] = "#,##0"
+        fmts[slot_col(i, 4)] = "#,##0.0"
+    kinds = {c: ("in" if c in input_cols else "auto") for c in range(1, ncols + 1)}
+    data_area(ws, n0, n1, 1, ncols, kinds, fmts)
+    # text formats
+    for col in ("B", "D"):
+        for r in range(n0, n1 + 1):
+            ws[f"{col}{r}"].number_format = "@"
+
+    # ---- formulas ----
+    weight_refs_tpl = ",".join(f"${get_column_letter(slot_col(i, 4))}{{r}}" for i in range(1, SALES_SLOTS + 1))
+    for r in range(n0, n1 + 1):
+        ws[f"A{r}"] = f'=IF($B{r}="","",COUNTA($B${n0}:$B{r}))'
+        code = parse_code_expr(f"$D{r}")
+        ws[f"E{r}"] = (f'=IF($D{r}="","",IFERROR(VLOOKUP({code},SellerTbl,2,0),"کد ناشناخته"))')
+        ws[f"I{r}"] = f'=IF(OR($F{r}="",$G{r}=""),"",$F{r}-$G{r})'
+        ws[f"J{r}"] = f'=IF($I{r}="","",IF(ABS($I{r})<=0.01*$F{r},"{OK_MARK}","{BAD_MARK}"))'
+        wrefs = weight_refs_tpl.format(r=r)
+        ws[f"K{r}"] = f'=IF(COUNT({wrefs})=0,"",SUM({wrefs}))'
+        ws[f"L{r}"] = f'=IF(OR($F{r}="",$K{r}=""),"",$F{r}-$K{r})'
+        for i in range(1, SALES_SLOTS + 1):
+            pc = f"${get_column_letter(slot_col(i, 0))}{r}"
+            pcode = parse_code_expr(pc)
+            ws.cell(row=r, column=slot_col(i, 1)).value = (
+                f'=IF({pc}="","",IFERROR(VLOOKUP(IFERROR(VLOOKUP({pcode},ProdTbl,5,0),""),'
+                f'BasketTbl,2,0),"کد ناشناخته"))'
+            )
+            ws.cell(row=r, column=slot_col(i, 2)).value = (
+                f'=IF({pc}="","",IFERROR(VLOOKUP({pcode},ProdTbl,3,0),"کد ناشناخته"))'
+            )
+
+    # ---- seed rows ----
+    for ri, (date, inv, seller, sent, sold, amount, prods) in enumerate(SEED_SALES):
+        r = n0 + ri
+        ws[f"B{r}"] = date
+        ws[f"C{r}"] = inv
+        ws[f"D{r}"] = seller
+        ws[f"F{r}"] = sent
+        ws[f"G{r}"] = sold
+        ws[f"H{r}"] = amount
+        for pi, (prod, cnt, wt) in enumerate(prods):
+            ws.cell(row=r, column=slot_col(pi + 1, 0)).value = prod
+            ws.cell(row=r, column=slot_col(pi + 1, 3)).value = cnt
+            ws.cell(row=r, column=slot_col(pi + 1, 4)).value = wt
+
+    # ---- widths & grouping ----
+    widths = {"A": 5.5, "B": 11, "C": 11, "D": 38, "E": 30, "F": 12, "G": 12,
+              "H": 16, "I": 12, "J": 9, "K": 13, "L": 13}
+    for i in range(1, SALES_SLOTS + 1):
+        widths[get_column_letter(slot_col(i, 0))] = 30
+        widths[get_column_letter(slot_col(i, 1))] = 16
+        widths[get_column_letter(slot_col(i, 2))] = 12
+        widths[get_column_letter(slot_col(i, 3))] = 10
+        widths[get_column_letter(slot_col(i, 4))] = 12
+    set_widths(ws, widths)
+    for c in range(slot_col(1, 0), ncols + 1):
+        ws.column_dimensions[get_column_letter(c)].outlineLevel = 1
+
+    # ---- data validation ----
+    dvs = []
+    dv_date = DataValidation(
+        type="custom", allow_blank=True, errorStyle="warning",
+        formula1=f'AND(LEN($B{n0})=10,MID($B{n0},5,1)="/",MID($B{n0},8,1)="/",'
+                 f'ISNUMBER(VALUE(LEFT($B{n0},4))),ISNUMBER(VALUE(MID($B{n0},6,2))),'
+                 f'ISNUMBER(VALUE(MID($B{n0},9,2))))',
+        errorTitle="قالب تاریخ", error="تاریخ شمسی با قالب 1405/07/10 یا 14050710 وارد کنید (ارقام لاتین).")
+    dv_date.add(f"B{n0}:B{n1}")
+    dv_seller = DataValidation(
+        type="custom", allow_blank=True, errorStyle="stop",
+        formula1=f'OR($D{n0}="",COUNTIF(SellerCodes,$D{n0})>0,COUNTIF(SellerList,$D{n0})>0)',
+        errorTitle="کد فروشنده نامعتبر",
+        error="کد فروشنده در فایل INFO (شیت Sellers) یافت نشد. از کشویی انتخاب کنید یا کد صحیح (مثل SL001) را وارد کنید.",
+        promptTitle="کد فروشنده",
+        prompt="کد را تایپ کنید (SL001…) یا از کشویی انتخاب کنید؛ نام فروشنده خودکار نمایش داده می‌شود.")
+    dv_seller.showInputMessage = True
+    dv_seller.add(f"D{n0}:D{n1}")
+    dv_sent = DataValidation(
+        type="custom", allow_blank=True, errorStyle="warning",
+        formula1=f'OR($F{n0}="",AND(ISNUMBER($F{n0}),$F{n0}>=0))',
+        errorTitle="وزن ارسالی", error="وزن باید عدد بزرگ‌تر یا مساوی صفر باشد.")
+    dv_sent.add(f"F{n0}:F{n1}")
+    dv_sold = DataValidation(
+        type="custom", allow_blank=True, errorStyle="warning",
+        formula1=f'OR($G{n0}="",AND(ISNUMBER($G{n0}),$G{n0}>=0))',
+        errorTitle="وزن فروش", error="وزن باید عدد بزرگ‌تر یا مساوی صفر باشد.")
+    dv_sold.add(f"G{n0}:G{n1}")
+    dv_amount = DataValidation(
+        type="custom", allow_blank=True, errorStyle="warning",
+        formula1=f'OR($H{n0}="",AND(ISNUMBER($H{n0}),$H{n0}>=0))',
+        errorTitle="مبلغ صافی", error="مبلغ باید عدد بزرگ‌تر یا مساوی صفر باشد (ریال).")
+    dv_amount.add(f"H{n0}:H{n1}")
+    dv_prod = DataValidation(
+        type="custom", allow_blank=True, errorStyle="stop",
+        formula1=f'OR({get_column_letter(slot_col(1, 0))}{n0}="",'
+                 f'COUNTIF(ProdCodes,{get_column_letter(slot_col(1, 0))}{n0})>0,'
+                 f'COUNTIF(ProdList,{get_column_letter(slot_col(1, 0))}{n0})>0)',
+        errorTitle="کد محصول نامعتبر",
+        error="این محصول در فایل INFO (شیت Products_Sell) تعریف نشده است. از کشویی انتخاب کنید.",
+        promptTitle="محصول",
+        prompt="محصول فروش را از کشویی انتخاب کنید (یا کد آن مثل PS01 را تایپ کنید)؛ نوع سبد و نوع مرکبات خودکار نوشته می‌شود.")
+    dv_prod.showInputMessage = True
+    for i in range(1, SALES_SLOTS + 1):
+        dv_prod.add(f"{get_column_letter(slot_col(i, 0))}{n0}:{get_column_letter(slot_col(i, 0))}{n1}")
+    dv_cnt = DataValidation(
+        type="custom", allow_blank=True, errorStyle="warning",
+        formula1=f'OR({get_column_letter(slot_col(1, 3))}{n0}="",'
+                 f'AND(ISNUMBER({get_column_letter(slot_col(1, 3))}{n0}),'
+                 f'{get_column_letter(slot_col(1, 3))}{n0}>=0,'
+                 f'INT({get_column_letter(slot_col(1, 3))}{n0})={get_column_letter(slot_col(1, 3))}{n0}))',
+        errorTitle="تعداد سبد", error="تعداد سبد باید عدد صحیح بزرگ‌تر یا مساوی صفر باشد.")
+    for i in range(1, SALES_SLOTS + 1):
+        dv_cnt.add(f"{get_column_letter(slot_col(i, 3))}{n0}:{get_column_letter(slot_col(i, 3))}{n1}")
+    dv_wt = DataValidation(
+        type="custom", allow_blank=True, errorStyle="warning",
+        formula1=f'OR({get_column_letter(slot_col(1, 4))}{n0}="",'
+                 f'AND(ISNUMBER({get_column_letter(slot_col(1, 4))}{n0}),'
+                 f'{get_column_letter(slot_col(1, 4))}{n0}>=0))',
+        errorTitle="وزن", error="وزن باید عدد بزرگ‌تر یا مساوی صفر باشد.")
+    for i in range(1, SALES_SLOTS + 1):
+        dv_wt.add(f"{get_column_letter(slot_col(i, 4))}{n0}:{get_column_letter(slot_col(i, 4))}{n1}")
+    dvs += [dv_date, dv_seller, dv_sent, dv_sold, dv_amount, dv_prod, dv_cnt, dv_wt]
+    for dv in dvs:
+        dv.showErrorMessage = True
+        ws.add_data_validation(dv)
+
+    # ---- conditional formatting ----
+    ok_fill = fl(C["ok_l"]); ok_font = fnt(10, True, C["ok"])
+    bad_fill = fl(C["red_l"]); bad_font = fnt(10, True, C["red"])
+    warn_fill = fl(C["amber_l"]); warn_font = fnt(9, True, C["amber"])
+    j_rng = f"J{n0}:J{n1}"
+    ws.conditional_formatting.add(j_rng, CellIsRule(operator="equal", formula=[f'"{OK_MARK}"'], fill=ok_fill, font=ok_font))
+    ws.conditional_formatting.add(j_rng, CellIsRule(operator="equal", formula=[f'"{BAD_MARK}"'], fill=bad_fill, font=bad_font))
+    ws.conditional_formatting.add(f"I{n0}:I{n1}", FormulaRule(
+        formula=[f'AND($I{n0}<>"",ABS($I{n0})>0.01*$F{n0})'], font=fnt(9, True, C["red"])))
+    ws.conditional_formatting.add(f"E{n0}:E{n1}", FormulaRule(
+        formula=[f'ISNUMBER(SEARCH("ناشناخته",$E{n0}))'], fill=warn_fill, font=warn_font))
+    # unknown product marks on basket/citrus columns (multi-range)
+    auto_rngs = " ".join(
+        f"{get_column_letter(slot_col(i, o))}{n0}:{get_column_letter(slot_col(i, o))}{n1}"
+        for i in range(1, SALES_SLOTS + 1) for o in (1, 2))
+    ws.conditional_formatting.add(auto_rngs, FormulaRule(
+        formula=[f'ISNUMBER(SEARCH("ناشناخته",{get_column_letter(slot_col(1, 1))}{n0}))'],
+        fill=warn_fill, font=warn_font))
+    ws.conditional_formatting.add(f"H{n0}:H{n1}", DataBarRule(
+        start_type="num", start_value=0, end_type="max", color="FFB74D", showValue=True))
+
+    # ---- header comments ----
+    tips = {
+        "B8": "تاریخ شمسی: 1405/07/10 یا 14050710 (ارقام لاتین).",
+        "C8": "شماره فاکتور — عدد آزاد؛ نیازی به تعریف قبلی ندارد.",
+        "D8": "کد فروشنده: از کشویی (SL001…) انتخاب یا تایپ کنید. کد غلط = خطا (باید در INFO ← Sellers تعریف شده باشد).",
+        "F8": "وزن ارسالی به کیلوگرم.",
+        "G8": "وزن فروش به کیلوگرم.",
+        "H8": "مبلغ صافی فاکتور به ریال.",
+        "I8": "اختلاف وزن (ارسالی − فروش) — فقط در اکسل، در چاپ نمی‌آید.",
+        "J8": "کنترل سقف ۱٪: اگر اختلاف وزن بیش از ۱٪ وزن ارسالی باشد ضربدر قرمز (√ = منطبق). فقط در اکسل.",
+        "K8": "جمع وزن ۱۵ ردیف محصول — فقط در اکسل.",
+        "L8": "وزن ارسالی منهای جمع وزن محصولات — فقط در اکسل (کنترل تطبیق).",
+    }
+    first_prod = f"{get_column_letter(slot_col(1, 0))}8"
+    tips[first_prod] = ("محصول را از کشویی انتخاب کنید؛ نوع سبد و نوع مرکبات خودکار می‌آید. "
+                        "برای هر فاکتور تا ۱۵ نوع محصول. این ستون‌ها در چاپ نمی‌آیند.")
+    for ref, text in tips.items():
+        ws[ref].comment = Comment(text, "مازندشت", height=100, width=280)
+
+    ws.freeze_panes = "F10"
+    setup_print(ws, "landscape", title_rows="7:9",
+                print_area=f"A1:{print_last}{n1}",
+                header_center="فروش محصولات به فروشندگان — Entry")
+    return ws
+
+
+def build_sales_help(wb, cap):
+    ws = wb.create_sheet("Help")
+    ws.sheet_properties.tabColor = C["tab_blue"]
+    rtl(ws, 100)
+    brand_band(ws, 8, mode="info")
+    title_row(ws, 8, 3, "راهنمای فایل فروش (Mazandasht_Sales.xlsx)")
+    sections = [
+        ("۱) ساختار فایل", [
+            "Entry — ورود داده: هر ردیف = یک فاکتور فروش (یک ماشین‌بار). ردیف‌ها به هر ترتیبی زیر هم ثبت شوند.",
+            "۱۵ ردیف محصول در هر ردیف (ستون‌های بعد از «اختلاف با ارسالی»، خارج از محدوده چاپ): محصول (کشویی) | نوع سبد (خودکار) | نوع مرکبات (خودکار) | تعداد سبد | وزن.",
+            "Sync — آینه فایل مادر (INFO)؛ منبع کشوها و کدها. دست نزنید.",
+            "Calc — موتور محاسبات (نرمال‌سازی تاریخ، کد فروشنده و آمار ردیف). دست نزنید.",
+        ]),
+        ("۲) رنگ‌ها و نشانه‌ها", [
+            "زرد = ورودی شما | خاکستری = خودکار.",
+            f"{OK_MARK} = اختلاف وزن حداکثر ۱٪ وزن ارسالی است.",
+            f"{BAD_MARK} = اختلاف وزن بیش از ۱٪ وزن ارسالی — کنترل کنید.",
+            "«کد ناشناخته» = کد در INFO تعریف نشده (کشویی ورودی غیرمجاز را متوقف می‌کند؛ این علامت برای موارد چسبانده‌شده است).",
+            "ستون‌های «فقط اکسل» (اختلاف وزن تا پایان ۱۵ ردیف محصول) در چاپ نمی‌آیند؛ با دکمه +/− بالای ستون‌ها قابل جمع‌شدن‌اند.",
+        ]),
+        ("۳) اتصال به فایل مادر", [
+            "این فایل و Mazandasht_INFO.xlsx همیشه در یک پوشه باشند.",
+            "پس از تغییر INFO (فروشنده/محصول جدید و…): Data ← Edit Links ← Update Values.",
+            "فروشندگان در INFO ← شیت Sellers تعریف می‌شوند (کد SL…، نام، نوع مشتری که خودش کشویی است و در PartyTypes گسترش می‌یابد: حجره‌دار، صادراتی، واسطه، نقدی و…).",
+            "محصولات فروش در INFO ← Products_Sell — هر محصول «نوع سبد» و «دسته (نوع مرکبات)» دارد که اینجا خودکار نمایش داده می‌شود.",
+        ]),
+        ("۴) نکات ثبت", [
+            "تاریخ: 1405/07/10 یا 14050710 — شماره فاکتور: عدد آزاد.",
+            "کد فروشنده: تایپ (SL001) یا کشویی؛ اگر کد غلط باشد اکسل خطا می‌دهد (Stop).",
+            "وزن‌ها کیلوگرم (اعشار مجاز) — مبلغ صافی ریال.",
+            "کنترل ۱٪: اختلاف وزن ارسالی/فروش بیش از ۱٪ ارسالی باشد، ضربدر قرمز می‌گیرید.",
+            "ظرفیت: %d ردیف فاکتور × ۱۵ ردیف محصول. برای بیشتر، فرمول‌های ردیف آخر را به پایین کپی کنید." % cap.entry_rows,
+        ]),
+        ("۵) آینده", [
+            "دیتای این Entry برای فایل‌ها/شیت‌های تحلیلی آینده (فروش هر فروشنده، آنالیز محصول و سبد، مطابقت آماری و حسابرسی) آماده است — از طریق Calc و نام‌های تعریف‌شده (SC…).",
+        ]),
+    ]
+    r = 5
+    for title, lines in sections:
+        merge_put(ws, f"A{r}:H{r}", title, fnt(10.5, True, C["white"]), fl(C["green"]),
+                  al("right"), bd(b=sd("medium", C["orange"])))
+        ws.row_dimensions[r].height = 19
+        r += 1
+        for i, ln in enumerate(lines):
+            merge_put(ws, f"A{r}:H{r}", "• " + ln, fnt(9),
+                      fl(C["white"] if i % 2 == 0 else C["zebra"]), al("right", wrap=True), BORDER_ALL)
+            ws.row_dimensions[r].height = 17
+            r += 1
+        r += 1
+    set_widths(ws, {"A": 12, "B": 12, "C": 12, "D": 12, "E": 12, "F": 12, "G": 12, "H": 12})
+    setup_print(ws, "portrait", header_center="راهنما — فایل فروش")
+    return ws
+
+
+def build_sales(cap, out_path, external=True):
+    wb = Workbook()
+    wb.remove(wb.active)
+    wb.properties.title = "Mazandasht Sales — فروش به فروشندگان"
+    wb.properties.creator = BRAND_NAME
+    wb.properties.company = "Mazandasht"
+    wb.calculation.fullCalcOnLoad = True
+
+    if not external:
+        for name in INFO_SHEET_ORDER[1:]:
+            wb.create_sheet(name).sheet_properties.tabColor = C["tab_gray"]
+        build_info_sheets_into(wb, cap)
+
+    build_sales_entry(wb, cap)
+    build_sales_sync(wb, cap, external)
+    build_sales_calc(wb, cap)
+    build_sales_help(wb, cap)
+
+    order = ["Entry", "Sync", "Calc", "Help"]
+    if not external:
+        order += INFO_SHEET_ORDER[1:]
+    wb._sheets = sorted(wb._sheets, key=lambda s: order.index(s.title))
+    wb.active = 0
+
+    n0, n1 = SALES_DATA0, s_data1(cap)
+    y0 = SY_DATA0
+    c0, c1 = SALES_DATA0, SALES_DATA0 + cap.entry_rows - 1
+    names = {
+        "SellerTbl": f"Sync!$A${y0}:$B${y0 + cap.sellers - 1}",
+        "SellerCodes": f"Sync!$A${y0}:$A${y0 + cap.sellers - 1}",
+        "SellerList": (f"OFFSET(Sync!$R${y0},0,0,"
+                       f"MAX(COUNTIF(Sync!$R${y0}:$R${y0 + cap.sellers - 1},\"?*\"),1),1)"),
+        "ProdTbl": f"Sync!$E${y0}:$I${y0 + cap.products_sell - 1}",
+        "ProdCodes": f"Sync!$E${y0}:$E${y0 + cap.products_sell - 1}",
+        "ProdList": (f"OFFSET(Sync!$V${y0},0,0,"
+                     f"MAX(COUNTIF(Sync!$V${y0}:$V${y0 + cap.products_sell - 1},\"?*\"),1),1)"),
+        "BasketTbl": f"Sync!$K${y0}:$L${y0 + cap.baskets - 1}",
+        "SCNormDate": f"Calc!$E${c0}:$E${c1}",
+        "SCYM": f"Calc!$F${c0}:$F${c1}",
+        "SCSeller": f"Calc!$G${c0}:$G${c1}",
+        "SCInv": f"Calc!$H${c0}:$H${c1}",
+        "SCWSent": f"Calc!$I${c0}:$I${c1}",
+        "SCWSold": f"Calc!$J${c0}:$J${c1}",
+        "SCAmount": f"Calc!$K${c0}:$K${c1}",
+        "SCWProd": f"Calc!$L${c0}:$L${c1}",
+        "SCItems": f"Calc!$M${c0}:$M${c1}",
+        "SalesDate": f"Entry!$B${n0}:$B${n1}",
+        "SalesSellerCell": f"Entry!$D${n0}:$D${n1}",
+        "SalesSellerName": f"Entry!$E${n0}:$E${n1}",
+        "SalesWSent": f"Entry!$F${n0}:$F${n1}",
+        "SalesWSold": f"Entry!$G${n0}:$G${n1}",
+        "SalesAmount": f"Entry!$H${n0}:$H${n1}",
+    }
+    for n, ref in names.items():
+        wb.defined_names[n] = DefinedName(n, attr_text=ref)
+
+    wb.save(out_path)
+    return out_path
 
 
 # ============================================================================
 # 6. EXTERNAL LINK INJECTION (ECMA-376 externalLink part)
 # ============================================================================
 
-def inject_external_link(txn_path, info_filename, info_source_path):
+def mirror_map(cap):
+    """INFO ranges mirrored into consumer workbooks: sheet -> (min_col, max_col, min_row, max_row)."""
+    return {
+        "Company": (3, 3, 5, 16),
+        "Banks": (1, 4, S_DATA0, S_DATA0 + cap.banks - 1),
+        "Customers": (1, 3, S_DATA0, S_DATA0 + cap.customers - 1),
+        "Sellers": (1, 3, S_DATA0, S_DATA0 + cap.sellers - 1),
+        "Suppliers": (1, 3, S_DATA0, S_DATA0 + cap.suppliers - 1),
+        "Accounts": (1, 3, S_DATA0, S_DATA0 + cap.accounts - 1),
+        "Staff": (1, 2, S_DATA0, S_DATA0 + cap.staff - 1),
+        "PartyTypes": (1, 2, S_DATA0, S_DATA0 + cap.party_types - 1),
+        "TxnTypes": (1, 2, S_DATA0, S_DATA0 + cap.txn_types - 1),
+        "Products_Buy": (1, 2, S_DATA0, S_DATA0 + cap.products_buy - 1),
+        "Products_Sell": (1, 5, S_DATA0, S_DATA0 + cap.products_sell - 1),
+        "Baskets": (1, 2, S_DATA0, S_DATA0 + cap.baskets - 1),
+        "Warehouses": (1, 2, S_DATA0, S_DATA0 + cap.warehouses - 1),
+    }
+
+
+def inject_external_link(txn_path, info_filename, info_source_path, cap):
     """
-    Post-process the saved Transactions xlsx: add a real external-workbook link
+    Post-process a saved consumer xlsx: add a real external-workbook link
     so '[1]Sheet!Ref' formulas resolve to the INFO workbook, with cached values
     so the file shows data even before the user updates links.
     """
     # gather cached values from the actual INFO file
     info_wb = load_workbook(info_source_path, data_only=False)
     sheet_order = INFO_SHEET_ORDER
-    # ranges mirrored by Sync: sheet -> (min_col, max_col, min_row, max_row)
-    cap_banks = 10
-    mirror = {
-        "Company": (4, 4, 5, 16),
-        "Banks": (1, 4, S_DATA0, S_DATA0 + 9),
-        "Customers": (1, 3, S_DATA0, S_DATA0 + 199),
-        "Suppliers": (1, 3, S_DATA0, S_DATA0 + 99),
-        "Accounts": (1, 3, S_DATA0, S_DATA0 + 49),
-        "Staff": (1, 2, S_DATA0, S_DATA0 + 49),
-        "PartyTypes": (1, 2, S_DATA0, S_DATA0 + 19),
-        "TxnTypes": (1, 2, S_DATA0, S_DATA0 + 13),
-        "Products_Buy": (1, 2, S_DATA0, S_DATA0 + 99),
-        "Products_Sell": (1, 2, S_DATA0, S_DATA0 + 99),
-        "Baskets": (1, 2, S_DATA0, S_DATA0 + 29),
-        "Warehouses": (1, 2, S_DATA0, S_DATA0 + 14),
-    }
+    mirror = mirror_map(cap)
     sheet_data_blocks = []  # (sheetId, xml_rows)
     for sid, name in enumerate(sheet_order):
         if name not in mirror:
@@ -1847,24 +2453,33 @@ def main():
     if args.qa:
         if args.external:
             info_path = os.path.join(out, INFO_FILE)
-            txn_path = os.path.join(out, TXN_FILE)
             build_info(QA_CAP, info_path)
+            txn_path = os.path.join(out, TXN_FILE)
             build_transactions(QA_CAP, txn_path, external=True)
-            inject_external_link(txn_path, INFO_FILE, info_path)
-            print("QA external pair:", info_path, txn_path)
+            inject_external_link(txn_path, INFO_FILE, info_path, QA_CAP)
+            sales_path = os.path.join(out, SALES_FILE)
+            build_sales(QA_CAP, sales_path, external=True)
+            inject_external_link(sales_path, INFO_FILE, info_path, QA_CAP)
+            print("QA external set:", info_path, txn_path, sales_path)
         else:
             txn_path = os.path.join(out, "QA_internal.xlsx")
             build_transactions(QA_CAP, txn_path, external=False)
-            print("QA internal:", txn_path)
+            sales_path = os.path.join(out, "QA_sales_internal.xlsx")
+            build_sales(QA_CAP, sales_path, external=False)
+            print("QA internal:", txn_path, sales_path)
         return
 
     info_path = os.path.join(out, INFO_FILE)
     txn_path = os.path.join(out, TXN_FILE)
+    sales_path = os.path.join(out, SALES_FILE)
     build_info(cap, info_path)
     build_transactions(cap, txn_path, external=True)
-    inject_external_link(txn_path, INFO_FILE, info_path)
-    print("INFO:", info_path)
-    print("TXN :", txn_path)
+    inject_external_link(txn_path, INFO_FILE, info_path, cap)
+    build_sales(cap, sales_path, external=True)
+    inject_external_link(sales_path, INFO_FILE, info_path, cap)
+    print("INFO :", info_path)
+    print("TXN  :", txn_path)
+    print("SALES:", sales_path)
 
 
 if __name__ == "__main__":
