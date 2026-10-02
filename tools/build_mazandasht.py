@@ -80,6 +80,7 @@ class Cap:
     """Row capacities of the system."""
     entry_rows: int = 2000      # Entry data rows  (rows 9..2008)
     bank_rows: int = 500        # rows in each Bank sheet (rows 17..516)
+    seller_rows: int = 2000     # rows in each seller statement sheet
     banks: int = 10
     customers: int = 200
     sellers: int = 100
@@ -94,7 +95,7 @@ class Cap:
     warehouses: int = 15
 
 
-QA_CAP = Cap(entry_rows=40, bank_rows=20, banks=10, customers=10, sellers=8,
+QA_CAP = Cap(entry_rows=40, bank_rows=20, seller_rows=12, banks=10, customers=10, sellers=8,
              suppliers=8, accounts=6, staff=6, party_types=10, txn_types=5,
              products_buy=8, products_sell=8, baskets=5, warehouses=4)
 
@@ -242,6 +243,10 @@ SEED_ENTRY = [
      "", 15000000, "", "برداشت نقدی به صندوق — بدون کنترل مانده (نمونه)"),
     ("1405/07/01", "08:30", "BANK01 – ملت — جاری شرکت", "C001", "مشتری عمده", "واریز",
      250000000, "", 750000000, "ردیف تکراری — اثر آن را بر ستون وضعیت ببینید (نمونه)"),
+    ("1405/07/04", "10:30", "BANK01 – ملت — جاری شرکت", "SL001", "حجره‌دار میدان بار", "واریز",
+     300000000, "", "", "واریز فروشنده SL001 (نمونه)"),
+    ("1405/07/09", "11:30", "BANK02 – صادرات — جاری شرکت", "SL002", "مشتری صادراتی", "واریز",
+     1600000000, "", "", "تسویه فروشنده SL002 (نمونه)"),
 ]
 
 MONTHS_FA = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
@@ -856,9 +861,9 @@ BANK_WIDTHS = [5.5, 11, 7.5, 10, 23, 15, 13, 14, 14, 16, 16, 13, 10, 27, 11, 6]
 BANK_FMT_COLS = {8: "#,##0", 9: "#,##0", 10: "#,##0", 11: "#,##0"}
 
 
-def sync_ref(sheet, cell, external):
+def sync_ref(sheet, cell, external, link=1):
     """External/local reference used by the Sync mirrors."""
-    return f"[1]{sheet}!{cell}" if external else f"{sheet}!{cell}"
+    return f"[{link}]{sheet}!{cell}" if external else f"{sheet}!{cell}"
 
 
 def build_sync(wb, cap, external):
@@ -973,11 +978,16 @@ def build_sync(wb, cap, external):
             f'"(بدون عنوان)",VLOOKUP($AS{r},$A${n0}:$D${n0 + cap.banks - 1},2,0)))'
         )
 
+    # --- sellers mirror (BA:BB) — sellers can be bank parties too ---
+    block_header("BA", "Sellers · Code"); block_header("BB", "Sellers · Name")
+    mirror("BA", "Sellers", "A", cap.sellers)
+    mirror("BB", "Sellers", "B", cap.sellers)
+
     widths = {"A": 9, "B": 26, "C": 14, "D": 8, "F": 9, "G": 26, "I": 9, "J": 26,
               "L": 9, "M": 26, "O": 9, "P": 24, "R": 9, "S": 22, "U": 9, "V": 22,
               "X": 9, "Y": 24, "AA": 9, "AB": 24, "AD": 9, "AE": 20, "AG": 9,
               "AH": 20, "AJ": 30, "AN": 7, "AO": 22, "AP": 7, "AQ": 22,
-              "AR": 7, "AS": 22, "AT": 34}
+              "AR": 7, "AS": 22, "AT": 34, "BA": 9, "BB": 28}
     set_widths(ws, widths)
     ws.freeze_panes = "A6"
     return ws
@@ -1052,7 +1062,7 @@ def build_calc(wb, cap):
         )
         # H sort key
         ws[f"H{r}"] = (
-            f'=IF($G{r}="","",RIGHT($E{r},4)&MID($E{r},6,2)&RIGHT($E{r},2)&'
+            f'=IF($G{r}="","",LEFT($E{r},4)&MID($E{r},6,2)&RIGHT($E{r},2)&'
             f'IF($F{r}="","0000",IF($F{r}="نامعتبر","9999",LEFT($F{r},2)&RIGHT($F{r},2)))&'
             f'"|"&RIGHT("00000"&{r - E_DATA0 + 1},5))'
         )
@@ -1138,7 +1148,8 @@ def build_entry(wb, cap):
         ws[f"H{r}"] = (
             f'=IF($G{r}="","",IFERROR(VLOOKUP($G{r},CustTbl,2,0),'
             f'IFERROR(VLOOKUP($G{r},SuppTbl,2,0),IFERROR(VLOOKUP($G{r},AcctTbl,2,0),'
-            f'IFERROR(VLOOKUP($G{r},StaffTbl,2,0),"کد ناشناخته")))))'
+            f'IFERROR(VLOOKUP($G{r},StaffTbl,2,0),IFERROR(VLOOKUP($G{r},SellerTbl,2,0),'
+            f'"کد ناشناخته"))))))'
         )
         code = f"LEFT(UPPER(TRIM($E{r})),6)"
         ws[f"N{r}"] = (
@@ -1166,9 +1177,10 @@ def build_entry(wb, cap):
     dv_party = DataValidation(
         type="custom", allow_blank=True, errorStyle="warning",
         formula1=f'OR($G{n0}="",COUNTIF(CustCodes,$G{n0})>0,COUNTIF(SuppCodes,$G{n0})>0,'
-                 f'COUNTIF(AcctCodes,$G{n0})>0,COUNTIF(StaffCodes,$G{n0})>0)',
+                 f'COUNTIF(AcctCodes,$G{n0})>0,COUNTIF(StaffCodes,$G{n0})>0,'
+                 f'COUNTIF(SellerCodes,$G{n0})>0)',
         errorTitle="کد ناشناخته",
-        error="این کد در فایل INFO یافت نشد (C… مشتری، S… تأمین‌کننده، X… سایر حساب‌ها، E… کارمند).",
+        error="این کد در فایل INFO یافت نشد (C… مشتری، S… تأمین‌کننده، X… سایر حساب‌ها، E… کارمند، SL… فروشنده).",
         promptTitle="کد طرف حساب", prompt="کد را از فایل INFO تایپ کنید؛ نام به‌صورت خودکار می‌آید.")
     dv_party.add(f"G{n0}:G{n1}")
     dv_ptype = DataValidation(type="list", formula1="ListPartyTypes", allow_blank=True)
@@ -1230,7 +1242,7 @@ def build_entry(wb, cap):
         "C7": "تاریخ شمسی: 1405/07/10 یا 14050710 (ارقام لاتین).",
         "D7": "ساعت 24 ساعته: 09:30 یا 9:30 — برای خالی بگذارید 00:00 فرض می‌شود.",
         "E7": "بانک را از کشویی انتخاب کنید (BANK01 تا BANK10). عنوان از فایل INFO می‌آید.",
-        "G7": "کد طرف حساب: C… مشتری، S… تأمین‌کننده، X… سایر حساب‌ها، E… کارمند. نام به‌صورت خودکار می‌آید.",
+        "G7": "کد طرف حساب: C… مشتری، S… تأمین‌کننده، X… سایر حساب‌ها، E… کارمند، SL… فروشنده. نام به‌صورت خودکار می‌آید — واریز فروشنده در شیت SLxxx فایل فروش هم دیده می‌شود.",
         "I7": "نوع طرف حساب — لیست آن در INFO ← PartyTypes تعریف می‌شود.",
         "J7": "نوع تراکنش (واریز/برداشت/…) — لیست آن در INFO ← TxnTypes. در آینده ماهیت‌های تازه اضافه کنید.",
         "K7": "مبلغ واریز به ریال — در هر ردیف فقط واریز «یا» برداشت پر شود.",
@@ -1592,7 +1604,7 @@ def build_help(wb, cap):
         ]),
         ("۴) نکات ثبت", [
             "تاریخ: 1405/07/10 یا 14050710 — ساعت: 09:30 یا 9:30 (ارقام لاتین).",
-            "واریزکننده/برداشت‌کننده = کد طرف حساب (C…/S…/X…/E…)؛ نامش خودکار می‌آید.",
+            "واریزکننده/برداشت‌کننده = کد طرف حساب (C…/S…/X…/E…/SL… فروشنده)؛ نامش خودکار می‌آید.",
             "در هر ردیف فقط یکی از «واریز» یا «برداشت» پر شود.",
             "موجودی بانک (M) را همان‌طور که از پیامک/صورت‌حساب می‌خوانید بنویسید؛ سیستم مقایسه می‌کند.",
             "انتقال بین بانکی = دو ردیف: یک برداشت از بانک مبدا، یک واریز به بانک مقصد (نوع تراکنش: انتقال بین بانکی).",
@@ -1602,7 +1614,10 @@ def build_help(wb, cap):
             "همه برگه‌ها A4 و آماده چاپ‌اند؛ سرستون‌ها در هر صفحه تکرار می‌شوند.",
             "برگه‌های بانکی: افقی (Landscape) — سربرگ و پاصفحه با نام شرکت و شماره صفحه.",
         ]),
-        ("۶) گسترش در آینده", [
+        ("۶) پیوند با فایل فروش", [
+            "واریز/تسویه هر فروشنده را در این فایل با کد SLxxx ثبت کنید؛ صورت‌حساب او در شیت SLxxx فایل فروش به‌صورت خودکار می‌آید.",
+        ]),
+        ("۷) گسترش در آینده", [
             "ظرفیت Entry در این نسخه: %d ردیف و هر برگه بانک: %d ردیف. برای بیشتر، آخرین ردیف را انتخاب و تا پایین کپی کنید." % (cap.entry_rows, cap.bank_rows),
             "فایل‌های آینده (فروش هر فروشنده، انبار، خرید و…) به همین سبک روی کدهای INFO ساخته می‌شوند.",
         ]),
@@ -1664,6 +1679,8 @@ def build_transactions(cap, out_path, external=True, info_path=None):
         "SuppTbl": f"Sync!$I${y0}:$J${y0 + cap.suppliers - 1}",
         "AcctTbl": f"Sync!$L${y0}:$M${y0 + cap.accounts - 1}",
         "StaffTbl": f"Sync!$O${y0}:$P${y0 + cap.staff - 1}",
+        "SellerTbl": f"Sync!$BA${y0}:$BB${y0 + cap.sellers - 1}",
+        "SellerCodes": f"Sync!$BA${y0}:$BA${y0 + cap.sellers - 1}",
         "CustCodes": f"Sync!$F${y0}:$F${y0 + cap.customers - 1}",
         "SuppCodes": f"Sync!$I${y0}:$I${y0 + cap.suppliers - 1}",
         "AcctCodes": f"Sync!$L${y0}:$L${y0 + cap.accounts - 1}",
@@ -1782,9 +1799,9 @@ def build_sales_sync(wb, cap, external):
     ws.sheet_properties.tabColor = C["tab_gray"]
     ws.sheet_view.rightToLeft = False
     ws.sheet_view.showGridLines = False
-    brand_band(ws, 22, mode="info")
-    merge_put(ws, "A3:V3",
-              "برگه فنی — آینه‌ی فایل مادر (INFO) برای فایل فروش. فرمول‌ها را تغییر ندهید. "
+    brand_band(ws, 32, mode="info")
+    merge_put(ws, "A3:AF3",
+              "برگه فنی — آینه‌ی فایل مادر (INFO) و فایل واریز/برداشت (Transactions) برای فایل فروش. فرمول‌ها را تغییر ندهید. "
               "اگر همه سلول‌ها خالی شدند یعنی لینک به‌روز نشده: Data ← Edit Links ← Update Values.",
               fnt(8, True, C["red"]), fl(C["amber_l"]), al("left", wrap=True))
 
@@ -1851,9 +1868,30 @@ def build_sales_sync(wb, cap, external):
             f'"(بدون عنوان)",VLOOKUP($U{r},$E${n0}:$F${n0 + cap.products_sell - 1},2,0)))'
         )
 
+    # --- extended seller info (BA:BC): phone, mobile, address ---
+    for cl, t, info_col in zip(("BA", "BB", "BC"),
+                               ("Sellers · Phone", "· Mobile", "· Address"),
+                               ("D", "E", "F")):
+        block_header(cl, t)
+        mirror(cl, "Sellers", info_col, cap.sellers)
+    # --- bank Entry mirror (X..AF) — payments source, link 2 ---
+    bank_sheet = "Entry" if external else "BankEntry"
+    bank_cols = {"X": "C", "Y": "D", "Z": "E", "AA": "G", "AB": "I",
+                 "AC": "J", "AD": "K", "AE": "L", "AF": "P"}
+    for cl, src in bank_cols.items():
+        block_header(cl, f"Bank {bank_sheet} · {src}")
+    for i in range(cap.entry_rows):
+        r = n0 + i
+        br = E_DATA0 + i
+        for cl, src in bank_cols.items():
+            ref = sync_ref(bank_sheet, f"${src}${br}", external, link=2)
+            ws[f"{cl}{r}"] = f'=IF({ref}="","",{ref})'
+
     set_widths(ws, {"A": 9, "B": 28, "C": 20, "E": 9, "F": 26, "G": 14, "H": 10,
                     "I": 12, "K": 9, "L": 20, "N": 30, "P": 7, "Q": 22, "R": 36,
-                    "T": 7, "U": 22, "V": 36})
+                    "T": 7, "U": 22, "V": 36, "X": 12, "Y": 8, "Z": 28, "AA": 10,
+                    "AB": 18, "AC": 14, "AD": 14, "AE": 14, "AF": 30,
+                    "BA": 14, "BB": 14, "BC": 30})
     ws.freeze_panes = "A6"
     return ws
 
@@ -2188,6 +2226,223 @@ def build_sales_entry(wb, cap):
     return ws
 
 
+
+# ---- seller statement sheets (SL001..SLnnn) ----
+SELL_HDR1, SELL_HDR2, SELL_D0 = 15, 16, 17
+
+
+def build_sales_ledger(wb, cap):
+    """Ledger engine: merges sales invoices (Calc) + seller bank payments
+    (Sync mirror of the Transactions Entry) into per-seller ranked events."""
+    n0 = SY_DATA0
+    rows = cap.entry_rows
+    n1 = n0 + rows - 1
+    ws = wb.create_sheet("Ledger")
+    ws.sheet_properties.tabColor = C["tab_gray"]
+    ws.sheet_view.rightToLeft = False
+    ws.sheet_view.showGridLines = False
+    brand_band(ws, 14, mode="info")
+    merge_put(ws, "A3:N3",
+              "برگه فنی — موتور صورت‌حساب فروشندگان (ترکیب فاکتورهای فروش و پرداخت‌های بانکی + رتبه‌بندی). فرمول‌ها را تغییر ندهید.",
+              fnt(8, True, C["red"]), fl(C["amber_l"]), al("left"))
+    for cl, t in zip("ABCD", ["A·Seller", "A·Key", "A·Rank", "A·RankKey"]):
+        put(ws, f"{cl}5", t, fnt(8, True, C["white"]), fl(C["green"]), al("center"), BORDER_ALL)
+    for cl, t in zip("FGHIJKLMN", ["B·Seller", "B·Y", "B·M", "B·D", "B·Date",
+                                   "B·Key", "B·Rank", "B·RankKey", "B·Time"]):
+        put(ws, f"{cl}5", t, fnt(8, True, C["white"]), fl(C["olive"] if "olive" in C else C["gray"]),
+            al("center"), BORDER_ALL)
+    for i in range(rows):
+        r = n0 + i
+        er = SALES_DATA0 + i     # Calc / sales-Entry row
+        sr = n0 + i              # Sync row
+        # --- block A: invoices ---
+        ws[f"A{r}"] = (f'=IF(OR(Calc!$E{er}="",Calc!$E{er}="نامعتبر",Calc!$G{er}=""),"",'
+                       f'IF(LEFT(Calc!$G{er},2)="SL",Calc!$G{er},""))')
+        ws[f"B{r}"] = (f'=IF($A{r}="","",LEFT(Calc!$E{er},4)&MID(Calc!$E{er},6,2)&'
+                       f'RIGHT(Calc!$E{er},2)&"0000"&"|"&"1"&RIGHT("00000"&{i + 1},5))')
+        ws[f"C{r}"] = (f'=IF($B{r}="","",COUNTIFS(LdgSellerA,$A{r},LdgKeyA,"<"&$B{r})'
+                       f'+COUNTIFS(LdgSellerB,$A{r},LdgKeyB,"<"&$B{r})+1)')
+        ws[f"D{r}"] = f'=IF($C{r}="","",$A{r}&"|"&RIGHT("000000"&$C{r},6))'
+        # --- block B: bank payments ---
+        ws[f"F{r}"] = (f'=IF(Sync!$AA{sr}="","",IF(LEFT(UPPER(TRIM(Sync!$AA{sr})),2)="SL",'
+                       f'UPPER(TRIM(Sync!$AA{sr})),""))')
+        ws[f"G{r}"] = (f'=IF($F{r}="","",IF(Sync!$X{sr}="","",IF(ISNUMBER(Sync!$X{sr}),'
+                       f'IF(AND(Sync!$X{sr}>=10000101,Sync!$X{sr}<=99991231),INT(Sync!$X{sr}/10000),""),'
+                       f'IFERROR(VALUE(TRIM(LEFT(Sync!$X{sr},FIND("/",Sync!$X{sr})-1))),""))))')
+        ws[f"H{r}"] = (f'=IF(OR($F{r}="",$G{r}=""),"",IF(ISNUMBER(Sync!$X{sr}),'
+                       f'INT(MOD(Sync!$X{sr},10000)/100),'
+                       f'IFERROR(VALUE(TRIM(LEFT(MID(Sync!$X{sr},FIND("/",Sync!$X{sr})+1,20),'
+                       f'FIND("/",MID(Sync!$X{sr},FIND("/",Sync!$X{sr})+1,20))-1))),"")))')
+        ws[f"I{r}"] = (f'=IF(OR($F{r}="",$G{r}=""),"",IF(ISNUMBER(Sync!$X{sr}),'
+                       f'MOD(Sync!$X{sr},100),'
+                       f'IFERROR(VALUE(TRIM(MID(MID(Sync!$X{sr},FIND("/",Sync!$X{sr})+1,20),'
+                       f'FIND("/",MID(Sync!$X{sr},FIND("/",Sync!$X{sr})+1,20))+1,20))),"")))')
+        ws[f"J{r}"] = (f'=IF($F{r}="","",IF(OR($G{r}="",$H{r}="",$I{r}="",$G{r}<1300,$G{r}>1500,'
+                       f'$H{r}<1,$H{r}>12,$I{r}<1,$I{r}>31),"نامعتبر",'
+                       f'RIGHT("0000"&$G{r},4)&"/"&RIGHT("00"&$H{r},2)&"/"&RIGHT("00"&$I{r},2)))')
+        ws[f"N{r}"] = (f'=IF($F{r}="","",IF(Sync!$Y{sr}="","0000",'
+                       f'IF(AND(ISNUMBER(Sync!$Y{sr}),Sync!$Y{sr}>=0,Sync!$Y{sr}<1),'
+                       f'RIGHT("00"&HOUR(Sync!$Y{sr}),2)&RIGHT("00"&MINUTE(Sync!$Y{sr}),2),'
+                       f'IFERROR(RIGHT("00"&VALUE(LEFT(Sync!$Y{sr},FIND(":",Sync!$Y{sr})-1)),2)&'
+                       f'RIGHT("00"&VALUE(MID(Sync!$Y{sr},FIND(":",Sync!$Y{sr})+1,2)),2),"0000"))))')
+        ws[f"K{r}"] = (f'=IF(OR($F{r}="",$J{r}="",$J{r}="نامعتبر"),"",'
+                       f'LEFT($J{r},4)&MID($J{r},6,2)&RIGHT($J{r},2)&$N{r}&"|"&"2"&RIGHT("00000"&{i + 1},5))')
+        ws[f"L{r}"] = (f'=IF($K{r}="","",COUNTIFS(LdgSellerA,$F{r},LdgKeyA,"<"&$K{r})'
+                       f'+COUNTIFS(LdgSellerB,$F{r},LdgKeyB,"<"&$K{r})+1)')
+        ws[f"M{r}"] = f'=IF($L{r}="","",$F{r}&"|"&RIGHT("000000"&$L{r},6))'
+    set_widths(ws, {"A": 9, "B": 18, "C": 7, "D": 15, "F": 9, "G": 6, "H": 6,
+                    "I": 6, "J": 12, "K": 18, "L": 7, "M": 15, "N": 7})
+    ws.freeze_panes = "A6"
+    return ws
+
+
+def build_seller_sheet(wb, idx, cap):
+    """One statement sheet per seller: SL001.. — auto ledger from Ledger engine."""
+    code = f"SL{idx:03d}"
+    n0 = SELL_D0
+    n1 = n0 + cap.seller_rows - 1
+    ws = wb.create_sheet(code)
+    ws.sheet_properties.tabColor = C["tab_green"]
+    rtl(ws, 85)
+    last = "J"
+    brand_band(ws, 10, mode="txn", comp_col="N")
+    merge_put(ws, "A3:J3",
+              f'="صورت حساب فروشنده — "&IFERROR(IF(VLOOKUP("{code}",SellerTbl,2,0)="","(بدون عنوان)",'
+              f'VLOOKUP("{code}",SellerTbl,2,0)),"—")',
+              fnt(13, True, C["orange_d"]), fl(C["green_xl"]), al("center"),
+              bd(b=sd("medium", C["orange"])))
+    ws.row_dimensions[3].height = 24
+
+    # ---- account info block rows 5-10 ----
+    m_ph = f'MATCH("{code}",SellerCodes,0)'
+    info_rows = [
+        ("کد سازمانی حساب:", code, None),
+        ("نام صاحب حساب:", f'=IFERROR(IF(VLOOKUP("{code}",SellerTbl,2,0)="","(بدون عنوان)",VLOOKUP("{code}",SellerTbl,2,0)),"—")', None),
+        ("نوع مشتری:", f'=IFERROR(IF(VLOOKUP("{code}",SellerTbl,3,0)="","—",VLOOKUP("{code}",SellerTbl,3,0)),"—")', None),
+        ("تلفن / همراه:", f'=IFERROR(IF(AND(INDEX(SellerPhone,{m_ph})="",INDEX(SellerMobile,{m_ph})=""),"—",'
+                          f'TRIM(INDEX(SellerPhone,{m_ph})&"  /  "&INDEX(SellerMobile,{m_ph}))),"—")', None),
+        ("نشانی:", f'=IFERROR(IF(INDEX(SellerAddr,{m_ph})="","—",INDEX(SellerAddr,{m_ph})),"—")', None),
+    ]
+    for i, (lbl, val, _x) in enumerate(info_rows):
+        r = 5 + i
+        merge_put(ws, f"A{r}:B{r}", lbl, fnt(8.5, True, C["gray"]), fl(C["green_l"]),
+                  al("right"), BORDER_ALL)
+        merge_put(ws, f"C{r}:J{r}", val, fnt(10, True if i == 0 else False,
+                                             C["orange_d"] if i == 0 else C["txt"]),
+                  fl(C["auto"] if i < 5 else C["input"]), al("right"), BORDER_ALL)
+        ws.row_dimensions[r].height = 17
+    # opening balance (manual)
+    merge_put(ws, "A10:B10", "مانده اولیه حساب (دستی):", fnt(8.5, True, C["gray"]),
+              fl(C["green_l"]), al("right"), BORDER_ALL)
+    merge_put(ws, "C10:D10", 0, fnt(10, True, C["txt"]), fl(C["input"]), al("center"),
+              BORDER_ALL, "#,##0")
+    merge_put(ws, "E10:J10", "اگر حساب از قبل مانده دارد اینجا بنویسید (مثبت = بدهکار فروشنده) — در مانده‌ها اثر می‌گذارد.",
+              fnt(7.5, False, C["gray"], italic=True), fl(C["white"]), al("right"), BORDER_ALL)
+
+    # ---- KPI cards rows 11-14 ----
+    cards1 = [
+        (1, 2, "جمع بدهکار (ریال)", f"=SUM($H${n0}:$H${n1})", "#,##0"),
+        (3, 4, "جمع بستانکار (ریال)", f"=SUM($I${n0}:$I${n1})", "#,##0"),
+        (5, 6, "مانده نهایی حساب", f"=IFERROR(LOOKUP(9.99E+307,$J${n0}:$J${n1}),$C$10)", "#,##0"),
+        (7, 10, "ماهیت حساب",
+         f'=IF($E$12>0,"▲ بدهکار — فروشنده به ما بدهکار است",IF($E$12<0,'
+         f'"▼ بستانکار — ما به فروشنده بدهکاریم","= تسویه شده"))', None),
+    ]
+    cards2 = [
+        (1, 2, "تعداد فاکتور فروش", f'=COUNTIF($C${n0}:$C${n1},"فروش")', "0"),
+        (3, 4, "تعداد پرداخت بانکی", f'=COUNTIF($C${n0}:$C${n1},"پرداخت بانکی")', "0"),
+        (5, 6, "جمع وزن ارسالی (kg)", f'=SUMIF($C${n0}:$C${n1},"فروش",$F${n0}:$F${n1})', "#,##0.0"),
+        (7, 8, "جمع وزن فروش (kg)", f'=SUMIF($C${n0}:$C${n1},"فروش",$G${n0}:$G${n1})', "#,##0.0"),
+        (9, 10, "آخرین تراکنش", f'=IF(COUNT($J${n0}:$J${n1})=0,"—",INDEX($B${n0}:$B${n1},COUNT($J${n0}:$J${n1})))', None),
+    ]
+    for (c0, c1, lbl, formula, fmt) in cards1:
+        card(ws, 11, 12, c0, c1, lbl, formula, fmt)
+    for (c0, c1, lbl, formula, fmt) in cards2:
+        card(ws, 13, 14, c0, c1, lbl, formula, fmt)
+    ws.row_dimensions[11].height = 13
+    ws.row_dimensions[12].height = 22
+    ws.row_dimensions[13].height = 13
+    ws.row_dimensions[14].height = 22
+
+    # ---- ledger headers ----
+    table_headers(ws, SELL_HDR1, SELL_HDR2, [
+        ("ردیف", "No."), ("تاریخ", "Date"), ("نوع عملیات", "Type"),
+        ("مرجع", "Ref"), ("توضیحات", "Description"),
+        ("وزن ارسالی (kg)", "Sent Wt"), ("وزن فروش (kg)", "Sold Wt"),
+        ("بدهکار (ریال)", "Debit"), ("بستانکار (ریال)", "Credit"), ("مانده (ریال)", "Balance"),
+    ])
+
+    # ---- data rows (fast shared styles) ----
+    F_BODY = fnt(9)
+    F_NO = fnt(9, False, C["gray"])
+    B_ALL = BORDER_ALL
+    AL_C = al("center")
+    AL_R = al("right")
+    FILL_W = fl(C["white"])
+    FILL_Z = fl(C["zebra"])
+    NF_INT = "#,##0"
+    NF_W = "#,##0.0"
+    for k in range(1, cap.seller_rows + 1):
+        r = n0 + k - 1
+        zeb = FILL_W if k % 2 else FILL_Z
+        cells = [
+            ("A", k, F_NO, zeb, None, AL_C),
+            ("B", f'=IF(AND($L{r}="",$M{r}=""),"",IF($L{r}<>"",INDEX(SCNormDate,$L{r}),INDEX(LdgDateB,$M{r})))', F_BODY, zeb, None, AL_C),
+            ("C", f'=IF($L{r}<>"","فروش",IF($M{r}<>"","پرداخت بانکی",""))', F_BODY, zeb, None, AL_C),
+            ("D", f'=IF($L{r}<>"",INDEX(SCInv,$L{r}),IF($M{r}<>"",INDEX(LdgBankB,$M{r}),""))', F_BODY, zeb, None, AL_C),
+            ("E", f'=IF($L{r}<>"",IF(INDEX(SCItems,$L{r})=0,"","فروش محصولات — "&INDEX(SCItems,$L{r})&" قلم"),'
+                  f'IF($M{r}<>"",IF(INDEX(LdgNoteB,$M{r})="","—",INDEX(LdgNoteB,$M{r})),""))', F_BODY, zeb, None, AL_R),
+            ("F", f'=IF($L{r}<>"",IF(INDEX(SCWSent,$L{r})=0,"",INDEX(SCWSent,$L{r})),"")', F_BODY, zeb, NF_W, AL_C),
+            ("G", f'=IF($L{r}<>"",IF(INDEX(SCWSold,$L{r})=0,"",INDEX(SCWSold,$L{r})),"")', F_BODY, zeb, NF_W, AL_C),
+            ("H", f'=IF($L{r}<>"",IF(INDEX(SCAmount,$L{r})=0,"",INDEX(SCAmount,$L{r})),'
+                  f'IF($M{r}<>"",IF(INDEX(LdgWitB,$M{r})=0,"",INDEX(LdgWitB,$M{r})),""))', F_BODY, zeb, NF_INT, AL_C),
+            ("I", f'=IF($M{r}<>"",IF(INDEX(LdgDepB,$M{r})=0,"",INDEX(LdgDepB,$M{r})),"")', F_BODY, zeb, NF_INT, AL_C),
+        ]
+        if k == 1:
+            jf = f'=IF($B{r}="","",$C$10+IF($H{r}="",0,$H{r})-IF($I{r}="",0,$I{r}))'
+        else:
+            jf = (f'=IF($B{r}="","",IF($J{r - 1}="",$C$10,$J{r - 1})'
+                  f'+IF($H{r}="",0,$H{r})-IF($I{r}="",0,$I{r}))')
+        cells.append(("J", jf, fnt(9, True), zeb, NF_INT, AL_C))
+        for col, val, f_, fill, nf, alg in cells:
+            c = ws[f"{col}{r}"]
+            c.value = val
+            c.font = f_
+            c.fill = fill
+            c.border = B_ALL
+            c.alignment = alg
+            if nf:
+                c.number_format = nf
+        # hidden helpers L/M
+        ws[f"L{r}"] = f'=IFERROR(MATCH("{code}|"&RIGHT("000000"&{k},6),LdgRankKeyA,0),"")'
+        ws[f"M{r}"] = f'=IFERROR(MATCH("{code}|"&RIGHT("000000"&{k},6),LdgRankKeyB,0),"")'
+
+    # ---- conditional formatting ----
+    ok_fill = fl(C["ok_l"]); ok_font = fnt(9, True, C["ok"])
+    bad_fill = fl(C["red_l"]); bad_font = fnt(9, True, C["red"])
+    amber_fill = fl(C["amber_l"]); amber_font = fnt(9, True, C["amber"])
+    c_rng = f"C{n0}:C{n1}"
+    ws.conditional_formatting.add(c_rng, CellIsRule(operator="equal", formula=['"فروش"'], fill=amber_fill, font=amber_font))
+    ws.conditional_formatting.add(c_rng, CellIsRule(operator="equal", formula=['"پرداخت بانکی"'], fill=ok_fill, font=ok_font))
+    ws.conditional_formatting.add(f"H{n0}:H{n1}", CellIsRule(operator="greaterThan", formula=["0"], font=fnt(9, True, C["amber"])))
+    ws.conditional_formatting.add(f"I{n0}:I{n1}", CellIsRule(operator="greaterThan", formula=["0"], font=fnt(9, True, C["ok"])))
+    ws.conditional_formatting.add(f"J{n0}:J{n1}", CellIsRule(operator="lessThan", formula=["0"], font=fnt(9, True, C["red"])))
+    ws.conditional_formatting.add("G12", FormulaRule(formula=['ISNUMBER(SEARCH("▲",$G$12))'], fill=amber_fill, font=fnt(10, True, C["amber"])))
+    ws.conditional_formatting.add("G12", FormulaRule(formula=['ISNUMBER(SEARCH("▼",$G$12))'], fill=bad_fill, font=fnt(10, True, C["red"])))
+    ws.conditional_formatting.add("G12", FormulaRule(formula=['ISNUMBER(SEARCH("تسویه",$G$12))'], fill=ok_fill, font=fnt(10, True, C["ok"])))
+    ws.conditional_formatting.add("E12", CellIsRule(operator="greaterThan", formula=["0"], font=fnt(11, True, C["amber"])))
+    ws.conditional_formatting.add("E12", CellIsRule(operator="lessThan", formula=["0"], font=fnt(11, True, C["red"])))
+    ws.conditional_formatting.add("E12", CellIsRule(operator="equal", formula=["0"], font=fnt(11, True, C["ok"])))
+
+    set_widths(ws, {"A": 5.5, "B": 13, "C": 13, "D": 24, "E": 30, "F": 12, "G": 12,
+                    "H": 15, "I": 15, "J": 16, "L": 8, "M": 8})
+    ws.column_dimensions["L"].hidden = True
+    ws.column_dimensions["M"].hidden = True
+    ws.freeze_panes = "A17"
+    setup_print(ws, "landscape", title_rows="15:16", print_area=f"A1:J{n1}",
+                header_center=f"صورت حساب فروشنده — {code}")
+    return ws
+
 def build_sales_help(wb, cap):
     ws = wb.create_sheet("Help")
     ws.sheet_properties.tabColor = C["tab_blue"]
@@ -2198,8 +2453,9 @@ def build_sales_help(wb, cap):
         ("۱) ساختار فایل", [
             "Entry — ورود داده: هر ردیف = یک فاکتور فروش (یک ماشین‌بار). ردیف‌ها به هر ترتیبی زیر هم ثبت شوند.",
             "۱۵ ردیف محصول در هر ردیف (ستون‌های بعد از «اختلاف با ارسالی»، خارج از محدوده چاپ): محصول (کشویی) | نوع سبد (خودکار) | نوع مرکبات (خودکار) | تعداد سبد | وزن.",
-            "Sync — آینه فایل مادر (INFO)؛ منبع کشوها و کدها. دست نزنید.",
-            "Calc — موتور محاسبات (نرمال‌سازی تاریخ، کد فروشنده و آمار ردیف). دست نزنید.",
+            "SL001 … SL100 — صورت‌حساب خودکار هر فروشنده: فاکتورها (بدهکار) و پرداخت‌های بانکی (بستانکار) به ترتیب تاریخ + مانده و ماهیت حساب.",
+            "Sync — آینه فایل مادر (INFO) و فایل واریز/برداشت (Transactions)؛ منبع کشوها و کدها. دست نزنید.",
+            "Calc / Ledger — موتورهای محاسبات (نرمال‌سازی تاریخ، رتبه‌بندی رویدادها). دست نزنید.",
         ]),
         ("۲) رنگ‌ها و نشانه‌ها", [
             "زرد = ورودی شما | خاکستری = خودکار.",
@@ -2221,7 +2477,15 @@ def build_sales_help(wb, cap):
             "کنترل ۱٪: اختلاف وزن ارسالی/فروش بیش از ۱٪ ارسالی باشد، ضربدر قرمز می‌گیرید.",
             "ظرفیت: %d ردیف فاکتور × ۱۵ ردیف محصول. برای بیشتر، فرمول‌های ردیف آخر را به پایین کپی کنید." % cap.entry_rows,
         ]),
-        ("۵) آینده", [
+        ("۵) شیت‌های صورت‌حساب فروشنده (SL001…)", [
+            "سربرگ هر شیت: کد سازمانی، نام، نوع مشتری، تلفن و نشانی — خودکار از INFO؛ «مانده اولیه» دستی است.",
+            "کارت‌های بالای صفحه: جمع بدهکار، جمع بستانکار، مانده نهایی، ماهیت حساب (▲ بدهکار / ▼ بستانکار / = تسویه)، تعداد فاکتور و پرداخت، جمع وزن‌ها و آخرین تراکنش.",
+            "هر ردیف: تاریخ | نوع عملیات | مرجع | توضیحات | وزن ارسالی و فروش (فقط ردیف‌های فروش) | بدهکار | بستانکار | مانده.",
+            "فروش = مبلغ صافی در ستون بدهکار؛ پرداخت بانکی فروشنده (ثبت‌شده در فایل واریز/برداشت با کد SLxxx) = ستون بستانکار.",
+            "ردیف‌ها خودکار به تاریخ (و ساعت پرداخت‌ها) مرتب می‌شوند؛ چیزی در این شیت‌ها تایپ نکنید.",
+            "ظرفیت هر شیت: %d ردیف." % cap.seller_rows,
+        ]),
+        ("۶) آینده", [
             "دیتای این Entry برای فایل‌ها/شیت‌های تحلیلی آینده (فروش هر فروشنده، آنالیز محصول و سبد، مطابقت آماری و حسابرسی) آماده است — از طریق Calc و نام‌های تعریف‌شده (SC…).",
         ]),
     ]
@@ -2248,21 +2512,48 @@ def build_sales(cap, out_path, external=True):
     wb.properties.title = "Mazandasht Sales — فروش به فروشندگان"
     wb.properties.creator = BRAND_NAME
     wb.properties.company = "Mazandasht"
-    wb.calculation.fullCalcOnLoad = True
 
     if not external:
         for name in INFO_SHEET_ORDER[1:]:
             wb.create_sheet(name).sheet_properties.tabColor = C["tab_gray"]
         build_info_sheets_into(wb, cap)
+        # local stand-in for the bank Transactions Entry (QA mode)
+        bws = wb.create_sheet("BankEntry")
+        rtl(bws)
+        bws.sheet_properties.tabColor = C["tab_gray"]
+        set_widths(bws, {"C": 12, "D": 8, "E": 28, "G": 10, "I": 18, "J": 14,
+                         "K": 14, "L": 14, "P": 32})
+        seed_bank = list(SEED_ENTRY) + [
+            ("1405/07/12", "09:00", "BANK01 – ملت — جاری شرکت", "SL005", "سایر", "واریز",
+             100000000, "", "", "پرداخت بدون فاکتور (نمونه)"),
+        ]
+        for i, row in enumerate(seed_bank):
+            r = E_DATA0 + i
+            date, time_, bank, party, ptype, ttype, dep, wit, man, note = row
+            bws[f"C{r}"] = date
+            bws[f"D{r}"] = time_
+            bws[f"E{r}"] = bank
+            bws[f"G{r}"] = party
+            bws[f"I{r}"] = ptype
+            bws[f"J{r}"] = ttype
+            if dep != "":
+                bws[f"K{r}"] = dep
+            if wit != "":
+                bws[f"L{r}"] = wit
+            bws[f"P{r}"] = note
 
     build_sales_entry(wb, cap)
     build_sales_sync(wb, cap, external)
     build_sales_calc(wb, cap)
+    build_sales_ledger(wb, cap)
+    for i in range(1, cap.sellers + 1):
+        build_seller_sheet(wb, i, cap)
     build_sales_help(wb, cap)
 
-    order = ["Entry", "Sync", "Calc", "Help"]
+    order = (["Entry", "Sync", "Calc", "Ledger"] +
+             [f"SL{i:03d}" for i in range(1, cap.sellers + 1)] + ["Help"])
     if not external:
-        order += INFO_SHEET_ORDER[1:]
+        order += ["BankEntry"] + INFO_SHEET_ORDER[1:]
     wb._sheets = sorted(wb._sheets, key=lambda s: order.index(s.title))
     wb.active = 0
 
@@ -2270,7 +2561,7 @@ def build_sales(cap, out_path, external=True):
     y0 = SY_DATA0
     c0, c1 = SALES_DATA0, SALES_DATA0 + cap.entry_rows - 1
     names = {
-        "SellerTbl": f"Sync!$A${y0}:$B${y0 + cap.sellers - 1}",
+        "SellerTbl": f"Sync!$A${y0}:$C${y0 + cap.sellers - 1}",
         "SellerCodes": f"Sync!$A${y0}:$A${y0 + cap.sellers - 1}",
         "SellerList": (f"OFFSET(Sync!$R${y0},0,0,"
                        f"MAX(COUNTIF(Sync!$R${y0}:$R${y0 + cap.sellers - 1},\"?*\"),1),1)"),
@@ -2279,6 +2570,20 @@ def build_sales(cap, out_path, external=True):
         "ProdList": (f"OFFSET(Sync!$V${y0},0,0,"
                      f"MAX(COUNTIF(Sync!$V${y0}:$V${y0 + cap.products_sell - 1},\"?*\"),1),1)"),
         "BasketTbl": f"Sync!$K${y0}:$L${y0 + cap.baskets - 1}",
+        "SellerPhone": f"Sync!$BA${y0}:$BA${y0 + cap.sellers - 1}",
+        "SellerMobile": f"Sync!$BB${y0}:$BB${y0 + cap.sellers - 1}",
+        "SellerAddr": f"Sync!$BC${y0}:$BC${y0 + cap.sellers - 1}",
+        "LdgSellerA": f"Ledger!$A${y0}:$A${y0 + cap.entry_rows - 1}",
+        "LdgKeyA": f"Ledger!$B${y0}:$B${y0 + cap.entry_rows - 1}",
+        "LdgRankKeyA": f"Ledger!$D${y0}:$D${y0 + cap.entry_rows - 1}",
+        "LdgSellerB": f"Ledger!$F${y0}:$F${y0 + cap.entry_rows - 1}",
+        "LdgKeyB": f"Ledger!$K${y0}:$K${y0 + cap.entry_rows - 1}",
+        "LdgRankKeyB": f"Ledger!$M${y0}:$M${y0 + cap.entry_rows - 1}",
+        "LdgDateB": f"Ledger!$J${y0}:$J${y0 + cap.entry_rows - 1}",
+        "LdgDepB": f"Sync!$AD${y0}:$AD${y0 + cap.entry_rows - 1}",
+        "LdgWitB": f"Sync!$AE${y0}:$AE${y0 + cap.entry_rows - 1}",
+        "LdgBankB": f"Sync!$Z${y0}:$Z${y0 + cap.entry_rows - 1}",
+        "LdgNoteB": f"Sync!$AF${y0}:$AF${y0 + cap.entry_rows - 1}",
         "SCNormDate": f"Calc!$E${c0}:$E${c1}",
         "SCYM": f"Calc!$F${c0}:$F${c1}",
         "SCSeller": f"Calc!$G${c0}:$G${c1}",
@@ -2307,46 +2612,50 @@ def build_sales(cap, out_path, external=True):
 # ============================================================================
 
 def mirror_map(cap):
-    """INFO ranges mirrored into consumer workbooks: sheet -> (min_col, max_col, min_row, max_row)."""
+    """INFO ranges mirrored into consumer workbooks: sheet -> (cols, row0, row1)."""
+    rng = lambda r0, n: (S_DATA0, S_DATA0 + n - 1)
     return {
-        "Company": (3, 3, 5, 16),
-        "Banks": (1, 4, S_DATA0, S_DATA0 + cap.banks - 1),
-        "Customers": (1, 3, S_DATA0, S_DATA0 + cap.customers - 1),
-        "Sellers": (1, 3, S_DATA0, S_DATA0 + cap.sellers - 1),
-        "Suppliers": (1, 3, S_DATA0, S_DATA0 + cap.suppliers - 1),
-        "Accounts": (1, 3, S_DATA0, S_DATA0 + cap.accounts - 1),
-        "Staff": (1, 2, S_DATA0, S_DATA0 + cap.staff - 1),
-        "PartyTypes": (1, 2, S_DATA0, S_DATA0 + cap.party_types - 1),
-        "TxnTypes": (1, 2, S_DATA0, S_DATA0 + cap.txn_types - 1),
-        "Products_Buy": (1, 2, S_DATA0, S_DATA0 + cap.products_buy - 1),
-        "Products_Sell": (1, 5, S_DATA0, S_DATA0 + cap.products_sell - 1),
-        "Baskets": (1, 2, S_DATA0, S_DATA0 + cap.baskets - 1),
-        "Warehouses": (1, 2, S_DATA0, S_DATA0 + cap.warehouses - 1),
+        "Company": ([3], 5, 16),
+        "Banks": (list(range(1, 5)), *rng(0, cap.banks)),
+        "Customers": (list(range(1, 4)), *rng(0, cap.customers)),
+        "Sellers": (list(range(1, 7)), *rng(0, cap.sellers)),
+        "Suppliers": (list(range(1, 4)), *rng(0, cap.suppliers)),
+        "Accounts": (list(range(1, 4)), *rng(0, cap.accounts)),
+        "Staff": (list(range(1, 3)), *rng(0, cap.staff)),
+        "PartyTypes": (list(range(1, 3)), *rng(0, cap.party_types)),
+        "TxnTypes": (list(range(1, 3)), *rng(0, cap.txn_types)),
+        "Products_Buy": (list(range(1, 3)), *rng(0, cap.products_buy)),
+        "Products_Sell": (list(range(1, 6)), *rng(0, cap.products_sell)),
+        "Baskets": (list(range(1, 3)), *rng(0, cap.baskets)),
+        "Warehouses": (list(range(1, 3)), *rng(0, cap.warehouses)),
     }
 
 
-def inject_external_link(txn_path, info_filename, info_source_path, cap):
-    """
-    Post-process a saved consumer xlsx: add a real external-workbook link
-    so '[1]Sheet!Ref' formulas resolve to the INFO workbook, with cached values
-    so the file shows data even before the user updates links.
-    """
-    # gather cached values from the actual INFO file
-    info_wb = load_workbook(info_source_path, data_only=False)
-    sheet_order = INFO_SHEET_ORDER
-    mirror = mirror_map(cap)
-    sheet_data_blocks = []  # (sheetId, xml_rows)
+TXN_SHEET_ORDER = (["Entry"] + [f"Bank{i}" for i in range(1, 11)] +
+                   ["Summary", "Sync", "Calc", "Help"])
+
+
+def txn_mirror(cap):
+    """Transactions Entry ranges mirrored into the sales workbook (input columns)."""
+    return {"Entry": ([3, 4, 5, 7, 9, 10, 11, 12, 16],
+                      E_DATA0, E_DATA0 + cap.entry_rows - 1)}
+
+
+def _build_link_cache(source_path, sheet_order, mirror):
+    """Build sheetNames + cached sheetData XML for one external link."""
+    src = load_workbook(source_path, data_only=False)
+    blocks = []
     for sid, name in enumerate(sheet_order):
-        if name not in mirror:
+        if name not in mirror or name not in src.sheetnames:
             continue
-        c0, c1, r0, r1 = mirror[name]
-        ws = info_wb[name]
+        cols, r0, r1 = mirror[name]
+        ws = src[name]
         rows_xml = []
         for r in range(r0, r1 + 1):
             cells = []
-            for c in range(c0, c1 + 1):
+            for c in cols:
                 v = ws.cell(row=r, column=c).value
-                if v is None or v == "":
+                if v is None or v == "" or (isinstance(v, str) and v.startswith("=")):
                     continue
                 ref = f"{get_column_letter(c)}{r}"
                 if isinstance(v, bool):
@@ -2360,52 +2669,78 @@ def inject_external_link(txn_path, info_filename, info_source_path, cap):
                     cells.append(f'<cell r="{ref}" t="str"><v>{v_esc}</v></cell>')
             if cells:
                 rows_xml.append(f'<row r="{r}">' + "".join(cells) + "</row>")
-        sheet_data_blocks.append((sid, "".join(rows_xml)))
-
+        blocks.append((sid, "".join(rows_xml)))
     sheet_names_xml = "".join(f'<sheetName val="{n}"/>' for n in sheet_order)
     dataset_xml = "".join(
         f'<sheetData sheetId="{sid}">{rows}</sheetData>' if rows
-        else f'<sheetData sheetId="{sid}"/>'
-        for sid, rows in sheet_data_blocks)
+        else f'<sheetData sheetId="{sid}"/>' for sid, rows in blocks)
+    return sheet_names_xml, dataset_xml
 
-    ext_link = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
-        '<externalLink xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
-        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-        f'<externalBook r:id="rId1">'
-        f'<sheetNames>{sheet_names_xml}</sheetNames>'
-        f'<sheetDataSet>{dataset_xml}</sheetDataSet>'
-        '</externalBook></externalLink>'
-    )
-    ext_rels = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
-        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-        '<Relationship Id="rId1" '
-        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLinkPath" '
-        f'Target="{info_filename}" TargetMode="External"/>'
-        '</Relationships>'
-    )
 
-    zin = zipfile.ZipFile(txn_path)
+def inject_external_links(path, links):
+    """
+    Add real external-workbook links to a saved xlsx.
+    links: list of (filename, source_path, sheet_order, mirror) — link numbers
+    are assigned in order ([1], [2], ...).
+    """
+    parts = {}          # part name -> bytes
+    rel_entries = []    # (link_no)
+    wb_rels_add = []
+    ext_ref_ids = []
+    content_add = []
+
+    zin = zipfile.ZipFile(path)
     items = [(i.filename, zin.read(i.filename)) for i in zin.infolist()]
     zin.close()
     data = dict(items)
 
-    # workbook rels: find a free rId
     rels = data["xl/_rels/workbook.xml.rels"].decode("utf-8")
     ids = [int(m) for m in re.findall(r'Id="rId(\d+)"', rels)]
-    new_id = max(ids) + 1 if ids else 1
-    rels = rels.replace(
-        "</Relationships>",
-        f'<Relationship Id="rId{new_id}" '
-        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLink" '
-        'Target="externalLinks/externalLink1.xml"/></Relationships>')
+    next_id = (max(ids) + 1) if ids else 1
+
+    for no, (filename, source_path, sheet_order, mirror) in enumerate(links, start=1):
+        names_xml, dataset_xml = _build_link_cache(source_path, sheet_order, mirror)
+        ext_link = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+            '<externalLink xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            f'<externalBook r:id="rId1">'
+            f'<sheetNames>{names_xml}</sheetNames>'
+            f'<sheetDataSet>{dataset_xml}</sheetDataSet>'
+            '</externalBook></externalLink>'
+        )
+        fname = filename.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        ext_rels = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLinkPath" '
+            f'Target="{fname}" TargetMode="External"/>'
+            '</Relationships>'
+        )
+        parts[f"xl/externalLinks/externalLink{no}.xml"] = ext_link.encode("utf-8")
+        parts[f"xl/externalLinks/_rels/externalLink{no}.xml.rels"] = ext_rels.encode("utf-8")
+        wb_rels_add.append(
+            f'<Relationship Id="rId{next_id}" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLink" '
+            f'Target="externalLinks/externalLink{no}.xml"/>')
+        ext_ref_ids.append(f"rId{next_id}")
+        content_add.append(
+            f'<Override PartName="/xl/externalLinks/externalLink{no}.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.externalLink+xml"/>')
+        next_id += 1
+
+    # workbook rels
+    rels = rels.replace("</Relationships>", "".join(wb_rels_add) + "</Relationships>")
     data["xl/_rels/workbook.xml.rels"] = rels.encode("utf-8")
 
-    # workbook.xml: insert <externalReferences> before <definedNames>
+    # workbook.xml: <externalReferences> with all children
     wbxml = data["xl/workbook.xml"].decode("utf-8")
-    extrefs = f'<externalReferences><externalReference r:id="rId{new_id}"/></externalReferences>'
-    if "<definedNames>" in wbxml:
+    extrefs = "<externalReferences>" + "".join(
+        f'<externalReference r:id="{rid}"/>' for rid in ext_ref_ids) + "</externalReferences>"
+    if "<externalReferences>" in wbxml:
+        wbxml = re.sub(r"<externalReferences>.*?</externalReferences>", extrefs, wbxml, flags=re.S)
+    elif "<definedNames>" in wbxml:
         wbxml = wbxml.replace("<definedNames>", extrefs + "<definedNames>", 1)
     elif "<calcPr" in wbxml:
         wbxml = wbxml.replace("<calcPr", extrefs + "<calcPr", 1)
@@ -2415,22 +2750,22 @@ def inject_external_link(txn_path, info_filename, info_source_path, cap):
 
     # content types
     ct = data["[Content_Types].xml"].decode("utf-8")
-    ct = ct.replace(
-        "</Types>",
-        '<Override PartName="/xl/externalLinks/externalLink1.xml" '
-        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.externalLink+xml"/></Types>')
+    ct = ct.replace("</Types>", "".join(content_add) + "</Types>")
     data["[Content_Types].xml"] = ct.encode("utf-8")
 
-    data["xl/externalLinks/externalLink1.xml"] = ext_link.encode("utf-8")
-    data["xl/externalLinks/_rels/externalLink1.xml.rels"] = ext_rels.encode("utf-8")
-
-    with zipfile.ZipFile(txn_path, "w", zipfile.ZIP_DEFLATED) as z:
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         for name, _ in items:
             z.writestr(name, data[name])
-        z.writestr("xl/externalLinks/externalLink1.xml", data["xl/externalLinks/externalLink1.xml"])
-        z.writestr("xl/externalLinks/_rels/externalLink1.xml.rels",
-                   data["xl/externalLinks/_rels/externalLink1.xml.rels"])
-    return txn_path
+        for name, blob in parts.items():
+            z.writestr(name, blob)
+    return path
+
+
+def inject_external_link(txn_path, info_filename, info_source_path, cap):
+    """Single external link (INFO) — used for the Transactions workbook."""
+    return inject_external_links(
+        txn_path,
+        [(info_filename, info_source_path, INFO_SHEET_ORDER, mirror_map(cap))])
 
 
 # ============================================================================
@@ -2459,7 +2794,10 @@ def main():
             inject_external_link(txn_path, INFO_FILE, info_path, QA_CAP)
             sales_path = os.path.join(out, SALES_FILE)
             build_sales(QA_CAP, sales_path, external=True)
-            inject_external_link(sales_path, INFO_FILE, info_path, QA_CAP)
+            inject_external_links(sales_path, [
+                (INFO_FILE, info_path, INFO_SHEET_ORDER, mirror_map(QA_CAP)),
+                (TXN_FILE, txn_path, TXN_SHEET_ORDER, txn_mirror(QA_CAP)),
+            ])
             print("QA external set:", info_path, txn_path, sales_path)
         else:
             txn_path = os.path.join(out, "QA_internal.xlsx")
@@ -2476,7 +2814,10 @@ def main():
     build_transactions(cap, txn_path, external=True)
     inject_external_link(txn_path, INFO_FILE, info_path, cap)
     build_sales(cap, sales_path, external=True)
-    inject_external_link(sales_path, INFO_FILE, info_path, cap)
+    inject_external_links(sales_path, [
+        (INFO_FILE, info_path, INFO_SHEET_ORDER, mirror_map(cap)),
+        (TXN_FILE, txn_path, TXN_SHEET_ORDER, txn_mirror(cap)),
+    ])
     print("INFO :", info_path)
     print("TXN  :", txn_path)
     print("SALES:", sales_path)
